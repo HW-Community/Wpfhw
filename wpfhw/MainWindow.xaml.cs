@@ -78,8 +78,15 @@ public partial class MainWindow : Window
         _currentProjectType = btn.Tag?.ToString() ?? "mod";
         UpdateNavStyle(btn);
 
-        // 清空搜索框并重置下拉框
         txtSearchKey.Text = "";
+        txtSearchKey.Tag = _currentProjectType switch
+        {
+            "resourcepack" => "搜索资源包...",
+            "shader" => "搜索光影...",
+            "datapack" => "搜索数据包...",
+            "modpack" => "搜索整合包...",
+            _ => "搜索模组..."
+        };
         cbbGameVersion.SelectedIndex = 0;
         cbbLoader.SelectedIndex = 0;
 
