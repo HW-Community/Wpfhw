@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -23,8 +24,10 @@ public partial class MainWindow : Window
     private ModFile? _pendingDownloadFile;
     private VersionDisplayItem? _pendingVersion;
     private CancellationTokenSource? _downloadCts;
+    private CancellationTokenSource? _searchCts;
     private int _currentOffset = 0;
     private const int PageSize = 30;
+    private const int MCModPageSize = 10;
     private string _lastKeyword = "";
     private int _totalHits = 0;
 
@@ -51,6 +54,8 @@ public partial class MainWindow : Window
         {
             _downloadCts?.Cancel();
             _downloadCts?.Dispose();
+            _searchCts?.Cancel();
+            _searchCts?.Dispose();
             _httpClient.Dispose();
         };
     }
@@ -82,7 +87,7 @@ public partial class MainWindow : Window
             _ => "模组"
         };
 
-        if (_searchSource == "mcbbs")
+        if (_searchSource == "mcmod")
         {
             txtSearchKey.Tag = $"搜索{typeName}(中文)...";
         }
@@ -182,17 +187,22 @@ public partial class MainWindow : Window
 
     private async void DoSearch()
     {
-        if (_searchSource == "mcbbs")
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var ct = _searchCts.Token;
+
+        if (_searchSource == "mcmod")
         {
-            await DoMCBBSSearch();
+            await DoMCModSearch(ct);
         }
         else
         {
-            await DoModrinthSearch();
+            await DoModrinthSearch(ct);
         }
     }
 
-    private async Task DoModrinthSearch()
+    private async Task DoModrinthSearch(CancellationToken ct)
     {
         string keyword = _lastKeyword;
         string gameVer = GetComboBoxValue(cbbGameVersion, "全部版本");
@@ -229,7 +239,7 @@ public partial class MainWindow : Window
             string sortParam = string.IsNullOrWhiteSpace(keyword) ? "&index=downloads" : "";
             string requestUrl = $"https://api.modrinth.com/v2/search?query={queryEnc}&facets={facetEnc}&limit={PageSize}&offset={_currentOffset}{sortParam}";
 
-            string jsonText = await _httpClient.GetStringAsync(requestUrl);
+            string jsonText = await _httpClient.GetStringAsync(requestUrl, ct);
 
             var jsonOption = new JsonSerializerOptions
             {
@@ -252,6 +262,7 @@ public partial class MainWindow : Window
                 txtStatusMsg.Text = "未查询到相关结果";
             }
         }
+        catch (OperationCanceledException) { }
         catch (TaskCanceledException)
         {
             txtStatusMsg.Text = "请求超时！国内直连 Modrinth 不稳定";
@@ -270,7 +281,11 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task DoMCBBSSearch()
+    /// <summary>
+    /// MC百科搜索：请求 search.mcmod.cn 搜索页 HTML，解析 result-item 提取结果。
+    /// 选中后用标题中的英文名去 Modrinth 查版本（PCL 同款思路）。
+    /// </summary>
+    private async Task DoMCModSearch(CancellationToken ct)
     {
         string keyword = _lastKeyword;
 
@@ -280,50 +295,32 @@ public partial class MainWindow : Window
             txtStatusMsg.Text = "正在搜索 MC百科...";
             lstModResult.Items.Clear();
 
-            string mcbbsType = _currentProjectType switch
-            {
-                "mod" => "mod",
-                "resourcepack" => "resource",
-                "shader" => "shader",
-                "datapack" => "data",
-                "modpack" => "modpack",
-                _ => "mod"
-            };
-
+            int page = _currentOffset / MCModPageSize + 1;
             string queryEnc = Uri.EscapeDataString(keyword);
-            string requestUrl = $"https://search.mcmod.cn/api/search?keyword={queryEnc}&type={mcbbsType}&page={_currentOffset / PageSize + 1}&size={PageSize}";
+            string requestUrl = $"https://search.mcmod.cn/s?key={queryEnc}&filter=0&page={page}";
 
-            string jsonText = await _httpClient.GetStringAsync(requestUrl);
+            using var resp = await _httpClient.GetAsync(requestUrl, ct);
+            resp.EnsureSuccessStatusCode();
+            string html = await resp.Content.ReadAsStringAsync(ct);
 
-            var jsonOption = new JsonSerializerOptions
+            var hits = ParseMCModSearchHtml(html);
+
+            _totalHits = hits.Count;
+
+            if (hits.Count > 0)
             {
-                PropertyNameCaseInsensitive = true
-            };
-            var response = JsonSerializer.Deserialize<MCBBSearchResponse>(jsonText, jsonOption);
-
-            _totalHits = response?.Data?.Total ?? 0;
-
-            if (response?.Data?.List != null && response.Data.List.Any())
-            {
-                foreach (var item in response.Data.List)
+                foreach (var hit in hits)
                 {
-                    var hit = new ModSearchHit
-                    {
-                        ProjectId = item.Id,
-                        Title = item.Name,
-                        Description = item.Description,
-                        IconUrl = item.Icon,
-                        Downloads = item.Downloads
-                    };
                     lstModResult.Items.Add(hit);
                 }
-                txtStatusMsg.Text = $"找到 {_totalHits} 个中文结果，第 {_currentOffset / PageSize + 1} 页 (来自MC百科)";
+                txtStatusMsg.Text = $"找到 {hits.Count} 个中文结果，第 {page} 页 (来自MC百科，选中后将自动用英文名查 Modrinth)";
             }
             else
             {
                 txtStatusMsg.Text = "未查询到相关中文结果";
             }
         }
+        catch (OperationCanceledException) { }
         catch (TaskCanceledException)
         {
             txtStatusMsg.Text = "请求超时！MC百科连接不稳定";
@@ -340,6 +337,44 @@ public partial class MainWindow : Window
         {
             statusDot.Visibility = Visibility.Collapsed;
         }
+    }
+
+    /// <summary>解析 MC百科搜索页 HTML，提取 result-item 列表。</summary>
+    private static List<MCModSearchHit> ParseMCModSearchHtml(string html)
+    {
+        var result = new List<MCModSearchHit>();
+
+        // 匹配每个 result-item 块（只匹配 class/数字.html 的模组链接，跳过分类链接）
+        var itemMatches = Regex.Matches(html,
+            @"<div class=""result-item"">.*?<div class=""head"">.*?<a[^>]*href=""(https://www\.mcmod\.cn/class/\d+\.html)""[^>]*>(.*?)</a>.*?<div class=""body"">(.*?)</div>",
+            RegexOptions.Singleline);
+
+        foreach (Match m in itemMatches)
+        {
+            string url = m.Groups[1].Value;
+            string rawTitle = m.Groups[2].Value;
+            string desc = m.Groups[3].Value;
+
+            // 去掉 HTML 标签（含 <em> 高亮）
+            string title = Regex.Replace(rawTitle, "<[^>]+>", "").Trim();
+            desc = Regex.Replace(desc, "<[^>]+>", "").Trim();
+            // 去掉连续空白
+            desc = Regex.Replace(desc, @"\s+", " ");
+            if (desc.Length > 200) desc = desc[..200] + "...";
+
+            var hit = new MCModSearchHit
+            {
+                Url = url,
+                McModId = MCModSearchHit.ExtractIdFromUrl(url),
+                RawTitle = title,
+                Title = title,
+                EnglishName = MCModSearchHit.ExtractEnglishName(title),
+                Description = desc
+            };
+            result.Add(hit);
+        }
+
+        return result;
     }
 
     private static string GetComboBoxValue(ComboBox cbb, string defaultValue)
@@ -361,33 +396,33 @@ public partial class MainWindow : Window
 
     private void LstModResult_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (lstModResult.SelectedItem is not ModSearchHit modHit) return;
-        _selectedMod = modHit;
-
-        if (_searchSource == "mcbbs")
+        if (lstModResult.SelectedItem is MCModSearchHit mcHit)
         {
-            ShowMCBBDetail(modHit);
+            ShowMCModDetail(mcHit);
         }
-        else
+        else if (lstModResult.SelectedItem is ModSearchHit modHit)
         {
+            _selectedMod = modHit;
             ShowVersionDetail(modHit);
         }
     }
 
     private void BtnPrevPage_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentOffset >= PageSize)
+        int size = _searchSource == "mcmod" ? MCModPageSize : PageSize;
+        if (_currentOffset >= size)
         {
-            _currentOffset -= PageSize;
+            _currentOffset -= size;
             DoSearch();
         }
     }
 
     private void BtnNextPage_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentOffset + PageSize < _totalHits)
+        int size = _searchSource == "mcmod" ? MCModPageSize : PageSize;
+        if (_currentOffset + size < _totalHits)
         {
-            _currentOffset += PageSize;
+            _currentOffset += size;
             DoSearch();
         }
     }
@@ -423,25 +458,61 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowMCBBDetail(ModSearchHit modHit)
+    /// <summary>
+    /// MC百科结果选中后：先展示百科信息，再用英文名去 Modrinth 搜索项目，
+    /// 拿到第一个匹配后加载其版本列表（PCL 同款中文搜索体验）。
+    /// </summary>
+    private async void ShowMCModDetail(MCModSearchHit mcHit)
     {
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
         panelDownloading.Visibility = Visibility.Collapsed;
 
-        panelVersionDetail.DataContext = new { SelectedMod = modHit };
+        panelVersionDetail.DataContext = new { SelectedMod = mcHit };
         btnOpenExternal.Content = "访问 MC百科";
 
         _currentVersions.Clear();
         itemsVersionGroups.ItemsSource = null;
-
         panelVersionTags.Children.Clear();
-        var btnHint = CreateTagButton("MC百科结果", false);
-        btnHint.IsEnabled = false;
-        panelVersionTags.Children.Add(btnHint);
 
-        txtStatusMsg.Text = "此结果来自MC百科，请点击\"访问MC百科\"查看详情或切换到Modrinth搜索";
+        // 用英文名去 Modrinth 搜索
+        string query = string.IsNullOrWhiteSpace(mcHit.EnglishName) ? mcHit.Title : mcHit.EnglishName;
+        txtStatusMsg.Text = $"正在用「{query}」查 Modrinth 版本...";
+
+        try
+        {
+            string facet = $"[\"project_type:{_currentProjectType}\"]";
+            string queryEnc = Uri.EscapeDataString(query);
+            string facetEnc = Uri.EscapeDataString($"[{facet}]");
+            string searchUrl = $"https://api.modrinth.com/v2/search?query={queryEnc}&facets={facetEnc}&limit=1";
+
+            string json = await _httpClient.GetStringAsync(searchUrl);
+            var jsonOption = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var searchResult = JsonSerializer.Deserialize<ModSearchResponse>(json, jsonOption);
+
+            if (searchResult?.Hits != null && searchResult.Hits.Any())
+            {
+                var modHit = searchResult.Hits[0];
+                _selectedMod = modHit;
+
+                string verUrl = $"https://api.modrinth.com/v2/project/{modHit.ProjectId}/version";
+                string verJson = await _httpClient.GetStringAsync(verUrl);
+                _currentVersions = JsonSerializer.Deserialize<List<ModVersion>>(verJson, jsonOption) ?? new();
+
+                BuildVersionTags();
+                FilterVersionsByTag(_currentGameVer);
+                txtStatusMsg.Text = $"已在 Modrinth 找到「{modHit.Title}」，可下载版本已加载";
+            }
+            else
+            {
+                txtStatusMsg.Text = $"MC百科已找到，但 Modrinth 上未搜到「{query}」，可点击访问MC百科查看";
+            }
+        }
+        catch (Exception ex)
+        {
+            txtStatusMsg.Text = $"查 Modrinth 版本失败：{ex.Message}，可点击访问MC百科";
+        }
     }
 
     private void BuildVersionTags()
@@ -515,28 +586,35 @@ public partial class MainWindow : Window
 
     private void BtnOpenModrinth_Click(object sender, RoutedEventArgs e)
     {
-        if (_selectedMod == null) return;
+        // 优先 MC百科结果（选中后 _selectedMcMod 已记录）
+        if (lstModResult.SelectedItem is MCModSearchHit mcHit)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = string.IsNullOrEmpty(mcHit.Url)
+                    ? $"https://search.mcmod.cn/s?key={Uri.EscapeDataString(mcHit.Title)}"
+                    : mcHit.Url,
+                UseShellExecute = true
+            });
+            return;
+        }
 
-        if (_searchSource == "mcbbs")
+        if (_selectedMod == null) return;
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = $"https://search.mcmod.cn/s?key={Uri.EscapeDataString(_selectedMod.Title)}",
-                UseShellExecute = true
-            });
-        }
-        else
-        {
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = $"https://modrinth.com/{_currentProjectType}/{_selectedMod.ProjectId}",
-                UseShellExecute = true
-            });
-        }
+            FileName = $"https://modrinth.com/{_currentProjectType}/{_selectedMod.ProjectId}",
+            UseShellExecute = true
+        });
     }
 
     private void BtnCopyName_Click(object sender, RoutedEventArgs e)
     {
+        if (lstModResult.SelectedItem is MCModSearchHit mcHit)
+        {
+            System.Windows.Clipboard.SetText(mcHit.Title);
+            txtStatusMsg.Text = "已复制名称";
+            return;
+        }
         if (_selectedMod == null) return;
         System.Windows.Clipboard.SetText(_selectedMod.Title);
         txtStatusMsg.Text = "已复制名称";
