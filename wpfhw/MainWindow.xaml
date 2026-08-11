@@ -423,6 +423,14 @@
                                      Tag="搜索模组..."
                                      Margin="0 0 10 0"/>
 
+                            <ComboBox x:Name="cbbSearchSource" Width="100" 
+                                      Style="{StaticResource ModernComboBox}"
+                                      SelectionChanged="CbbSearchSource_SelectionChanged"
+                                      Margin="0 0 10 0">
+                                <ComboBoxItem Content="Modrinth" Tag="modrinth"/>
+                                <ComboBoxItem Content="MC百科" Tag="mcbbs"/>
+                            </ComboBox>
+
                             <ComboBox x:Name="cbbGameVersion" Width="130" 
                                       Style="{StaticResource ModernComboBox}"
                                       IsEditable="True" Margin="0 0 10 0">
@@ -618,7 +626,7 @@
                                            Foreground="#666666" TextWrapping="Wrap" 
                                            Margin="0 6 0 0" FontSize="13" LineHeight="22"/>
                                 <StackPanel Orientation="Horizontal" Margin="0 12 0 0">
-                                    <Button Content="访问 Modrinth" 
+                                    <Button x:Name="btnOpenExternal" Content="访问 Modrinth" 
                                             Style="{StaticResource SecondaryButton}"
                                             Margin="0 0 8 0" Click="BtnOpenModrinth_Click"/>
                                     <Button Content="复制名称" 
