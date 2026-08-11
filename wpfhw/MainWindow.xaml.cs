@@ -443,7 +443,6 @@ public partial class MainWindow : Window
                 DateModified = src.DateModified,
                 GameVersions = src.GameVersions,
                 Loaders = src.Loaders,
-                FeaturedGallery = src.FeaturedGallery,
                 OriginalTitle = src.Title, // 保留原始英文名，以防以后需要
                 OriginalDescription = src.Description
             };
