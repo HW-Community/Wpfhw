@@ -254,8 +254,7 @@ public partial class MainWindow : Window
                 txtStatusMsg.Text = "未查询到相关结果";
             }
         }
-        catch (OperationCanceledException) { }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             txtStatusMsg.Text = "请求超时！国内直连 Modrinth 不稳定";
         }
@@ -312,8 +311,7 @@ public partial class MainWindow : Window
                 txtStatusMsg.Text = "未查询到相关中文结果";
             }
         }
-        catch (OperationCanceledException) { }
-        catch (TaskCanceledException)
+        catch (OperationCanceledException)
         {
             txtStatusMsg.Text = "请求超时！MC百科连接不稳定";
         }
