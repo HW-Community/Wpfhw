@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace wpfhw;
 
@@ -10,14 +11,35 @@ public class ModVersion
     [JsonPropertyName("version_number")]
     public string VersionNumber { get; set; } = string.Empty;
 
-    [JsonPropertyName("files")]
+    [JsonIgnore]
     public List<ModFile> Files { get; set; } = new();
 
-    [JsonPropertyName("game_versions")]
+    [JsonPropertyName("files")]
+    public List<ModFile>? FilesRaw
+    {
+        get => Files;
+        set => Files = value ?? new();
+    }
+
+    [JsonIgnore]
     public List<string> GameVersions { get; set; } = new();
 
-    [JsonPropertyName("loaders")]
+    [JsonPropertyName("game_versions")]
+    public List<string>? GameVersionsRaw
+    {
+        get => GameVersions;
+        set => GameVersions = value ?? new();
+    }
+
+    [JsonIgnore]
     public List<string> Loaders { get; set; } = new();
+
+    [JsonPropertyName("loaders")]
+    public List<string>? LoadersRaw
+    {
+        get => Loaders;
+        set => Loaders = value ?? new();
+    }
 
     [JsonPropertyName("date_published")]
     public DateTime? DatePublished { get; set; }

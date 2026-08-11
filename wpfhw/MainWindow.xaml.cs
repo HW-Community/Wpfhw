@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -16,12 +17,20 @@ public class ModTranslation
 {
     public string ChineseTitle { get; set; } = string.Empty;
     public string ChineseDesc { get; set; } = string.Empty;
-    /// <summary>匹配时用的英文名小写，用于调试</summary>
     public string? MatchEnglishName { get; set; }
 }
 
 public partial class MainWindow : Window
 {
+    private static readonly JsonSerializerOptions SharedJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString,
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip
+    };
+
     private readonly HttpClient _httpClient;
     private ModSearchHit? _selectedMod;
     private List<ModVersion> _currentVersions = new();
@@ -250,7 +259,6 @@ public partial class MainWindow : Window
         _translations.Clear();
         _totalHits = 0;
         var seenIds = new HashSet<string>();
-        var jsonOption = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         statusDot.Visibility = Visibility.Visible;
         int hitIndex = 0;
@@ -281,7 +289,7 @@ public partial class MainWindow : Window
 
                 string searchUrl = $"https://api.modrinth.com/v2/search?query={queryEnc}&facets={facetEnc}&limit=3&offset=0";
                 string json = await _httpClient.GetStringAsync(searchUrl, ct);
-                var sr = JsonSerializer.Deserialize<ModSearchResponse>(json, jsonOption);
+                var sr = JsonSerializer.Deserialize<ModSearchResponse>(json, SharedJsonOptions);
 
                 if (sr?.Hits != null && sr.Hits.Any())
                 {
@@ -355,8 +363,7 @@ public partial class MainWindow : Window
 
             string jsonText = await _httpClient.GetStringAsync(requestUrl, ct);
 
-            var jsonOption = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            var searchResult = JsonSerializer.Deserialize<ModSearchResponse>(jsonText, jsonOption);
+            var searchResult = JsonSerializer.Deserialize<ModSearchResponse>(jsonText, SharedJsonOptions);
 
             _totalHits = searchResult?.TotalHits ?? 0;
 
@@ -552,8 +559,7 @@ public partial class MainWindow : Window
             string url = $"https://api.modrinth.com/v2/project/{modHit.ProjectId}/version";
             string json = await _httpClient.GetStringAsync(url);
 
-            var jsonOption = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            _currentVersions = JsonSerializer.Deserialize<List<ModVersion>>(json, jsonOption) ?? new();
+            _currentVersions = JsonSerializer.Deserialize<List<ModVersion>>(json, SharedJsonOptions) ?? new();
 
             BuildVersionTags();
             FilterVersionsByTag(_currentGameVer);

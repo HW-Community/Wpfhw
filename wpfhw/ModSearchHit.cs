@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace wpfhw;
@@ -37,14 +39,35 @@ public class ModSearchHit
     [JsonPropertyName("license")]
     public string License { get; set; } = string.Empty;
 
-    [JsonPropertyName("categories")]
+    [JsonIgnore]
     public List<string> Categories { get; set; } = new();
 
-    [JsonPropertyName("display_categories")]
+    [JsonPropertyName("categories")]
+    public List<string>? CategoriesRaw
+    {
+        get => Categories;
+        set => Categories = value ?? new();
+    }
+
+    [JsonIgnore]
     public List<string> DisplayCategories { get; set; } = new();
 
-    [JsonPropertyName("versions")]
+    [JsonPropertyName("display_categories")]
+    public List<string>? DisplayCategoriesRaw
+    {
+        get => DisplayCategories;
+        set => DisplayCategories = value ?? new();
+    }
+
+    [JsonIgnore]
     public List<string> Versions { get; set; } = new();
+
+    [JsonPropertyName("versions")]
+    public List<string>? VersionsRaw
+    {
+        get => Versions;
+        set => Versions = value ?? new();
+    }
 
     [JsonPropertyName("date_created")]
     public string DateCreated { get; set; } = string.Empty;
@@ -52,20 +75,54 @@ public class ModSearchHit
     [JsonPropertyName("date_modified")]
     public string DateModified { get; set; } = string.Empty;
 
-    [JsonPropertyName("game_versions")]
+    [JsonIgnore]
     public List<string> GameVersions { get; set; } = new();
 
-    [JsonPropertyName("loaders")]
+    [JsonPropertyName("game_versions")]
+    public List<string>? GameVersionsRaw
+    {
+        get => GameVersions;
+        set => GameVersions = value ?? new();
+    }
+
+    [JsonIgnore]
     public List<string> Loaders { get; set; } = new();
 
-    [JsonPropertyName("featured_gallery")]
-    public List<string> FeaturedGallery { get; set; } = new();
+    [JsonPropertyName("loaders")]
+    public List<string>? LoadersRaw
+    {
+        get => Loaders;
+        set => Loaders = value ?? new();
+    }
 
-    /// <summary>应用中译后，保留 Modrinth 原始英文标题（可选）</summary>
+    /// <summary>
+    /// 用扩展字段兜 featured_gallery 等任何 Modrinth 可能返回的字段，
+    /// 避免因类型不匹配（如 null 或对象而非数组）导致整条搜索结果反序列化失败。
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtraFields { get; set; }
+
+    [JsonIgnore]
+    public List<string> FeaturedGallery
+    {
+        get
+        {
+            if (ExtraFields == null || !ExtraFields.TryGetValue("featured_gallery", out var el))
+                return new();
+            if (el.ValueKind != JsonValueKind.Array) return new();
+            var list = new List<string>();
+            foreach (var item in el.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                    list.Add(item.GetString() ?? "");
+            }
+            return list;
+        }
+    }
+
     [JsonIgnore]
     public string OriginalTitle { get; set; } = string.Empty;
 
-    /// <summary>应用中译后，保留 Modrinth 原始英文描述（可选）</summary>
     [JsonIgnore]
     public string OriginalDescription { get; set; } = string.Empty;
 
