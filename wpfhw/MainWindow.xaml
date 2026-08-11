@@ -428,7 +428,7 @@
                                       SelectionChanged="CbbSearchSource_SelectionChanged"
                                       Margin="0 0 10 0">
                                 <ComboBoxItem Content="Modrinth" Tag="modrinth"/>
-                                <ComboBoxItem Content="MC百科" Tag="mcbbs"/>
+                                <ComboBoxItem Content="MC百科" Tag="mcmod"/>
                             </ComboBox>
 
                             <ComboBox x:Name="cbbGameVersion" Width="130" 
