@@ -1,27 +1,30 @@
 name: Issue‑Close‑Bot
 on:
   issues:
-    types:
-      - closed
+    types: [closed]
+
 permissions:
   issues: write
+  contents: read
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Modify issue labels
+      - name: 获取关闭原因并设置标签
         run: |
-          REASON=$(jq -r '.issue.state_reason' <<< "$(jq -c . '${{ toJson(github.event) }}')")
-          if [[ "${REASON}" == "not_planned" ]]; then
-            curl -X PATCH \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }} \
-            -d '{"labels":["拒绝"]}'
-          elif [[ "${REASON}" == "duplicate" ]]; then
-            curl -X PATCH \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }} \
-            -d '{"labels":["重复: ("]}'
+          echo "完整事件数据："
+          echo '${{ toJson(github.event) }}'
+
+          REASON="${{ github.event.issue.state_reason }}"
+          echo "关闭原因 = $REASON"
+
+          API_URL="https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}"
+          HEADER_TOKEN="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
+          HEADER_ACCEPT="Accept: application/vnd.github.v3+json"
+
+          if [ "$REASON" = "not_planned" ];then
+            curl -X PATCH -H "$HEADER_TOKEN" -H "$HEADER_ACCEPT" "$API_URL" -d '{"labels":["拒绝"]}'
+          elif [ "$REASON" = "duplicate" ];then
+            curl -X PATCH -H "$HEADER_TOKEN" -H "$HEADER_ACCEPT" "$API_URL" -d '{"labels":["重复: ("]}'
           fi
