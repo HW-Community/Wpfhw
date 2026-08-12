@@ -1,0 +1,26 @@
+name: Issue‑Close‑Bot
+on:
+  issues:
+    types: [closed]
+permissions:
+  issues: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: octokit/request-action@v2.x
+        id: issue
+        with:
+          route: GET /repos/${{github.repository}}/issues/${{github.event.issue.number}}
+          token: ${{secrets.GITHUB_TOKEN}}
+      - run: echo "REASON=$(echo '${{steps.issue.outputs.data}}' | jq -r '.state_reason')" >> $GITHUB_ENV
+      - if: env.REASON == 'not_planned'
+        run: |
+          gh issue edit ${{github.event.issue.number}} --remove-label '*'
+          gh issue edit ${{github.event.issue.number}} --add-label "拒绝"
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      - if: env.REASON == 'duplicate'
+        run: gh issue edit ${{github.event.issue.number}} --add-label "重复: ("
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
