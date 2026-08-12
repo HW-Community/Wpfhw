@@ -34,8 +34,7 @@ body:
     attributes:
       label: 使用场景
       description: 在什么情况下你需要该功能
-      placeholder: |
-        例：我经常需要批量导出下载记录，目前软件不支持
+      placeholder: 例：我经常需要批量导出下载记录，目前软件不支持
     validations:
       required: true
 
