@@ -1,0 +1,82 @@
+name: Bug 问题反馈
+description: 提交程序异常、报错、功能缺陷等 Bug 问题
+title: "[Bug] "
+labels: [未验证]
+issue_types: [Bug]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🐛 Bug 问题反馈
+        请完整填写以下信息，信息不全将无法复现与排查，感谢配合！
+
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: 提交前自检
+      options:
+        - label: 我已经确认客户端/程序为最新发布版本
+          required: true
+        - label: 我已搜索 Issue，确认不存在重复反馈
+          required: true
+
+  - type: input
+    id: bug_title
+    attributes:
+      label: 问题简要描述
+      description: 一句话说明出现了什么问题
+      placeholder: 例如：点击提交按钮无响应 / 数据展示错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: bug-step
+    attributes:
+      label: 复现步骤
+      description: 请详细写出复现该问题的完整操作步骤
+      placeholder: |
+        1. 进入xx页面
+        2. 点击xx按钮
+        3. 出现异常结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: bug-expect
+    attributes:
+      label: 预期表现
+      description: 正常情况下应该出现的结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: bug-real
+    attributes:
+      label: 实际表现
+      description: 现在实际出现的错误、异常、现象
+    validations:
+      required: true
+
+  - type: textarea
+    id: bug-log
+    attributes:
+      label: 报错信息 / 日志
+      description: 如有控制台报错、接口报错、崩溃日志请粘贴在此
+      render: code
+    validations:
+      required: false
+
+  - type: textarea
+    id: bug-screenshot
+    attributes:
+      label: 截图/录屏
+      description: 上传问题截图、操作录屏可极大提升排查效率
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ### 补充说明
+        如有其他环境、偶现概率、临时解决方案等内容，欢迎补充
