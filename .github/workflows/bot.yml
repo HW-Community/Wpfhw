@@ -8,19 +8,30 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: octokit/request-action@v2.x
+      - name: 获取issue信息
+        uses: octokit/request-action@v2.x
         id: issue
         with:
           route: GET /repos/${{github.repository}}/issues/${{github.event.issue.number}}
           token: ${{secrets.GITHUB_TOKEN}}
-      - run: echo "REASON=$(echo '${{steps.issue.outputs.data}}' | jq -r '.state_reason')" >> $GITHUB_ENV
-      - if: env.REASON == 'not_planned'
+
+      - name: 读取关闭原因
+        run: echo "REASON=$(echo '${{steps.issue.outputs.data}}' | jq -r '.state_reason')" >> $GITHUB_ENV
+
+      - name: not_planned 覆盖标签为拒绝
+        if: env.REASON == 'not_planned'
         run: |
-          gh issue edit ${{github.event.issue.number}} --remove-label '*'
-          gh issue edit ${{github.event.issue.number}} --add-label "拒绝"
-        env:
-          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
-      - if: env.REASON == 'duplicate'
-        run: gh issue edit ${{github.event.issue.number}} --add-label "重复: ("
-        env:
-          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          curl -s -X PATCH \
+          -H "Authorization: token ${{secrets.GITHUB_TOKEN}}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{github.repository}}/issues/${{github.event.issue.number}} \
+          -d '{"labels":["拒绝"]}'
+
+      - name: duplicate 添加标签
+        if: env.REASON == 'duplicate'
+        run: |
+          curl -s -X POST \
+          -H "Authorization: token ${{secrets.GITHUB_TOKEN}}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://api.github.com/repos/${{github.repository}}/issues/${{github.event.issue.number}}/labels \
+          -d '["重复: ("]'
