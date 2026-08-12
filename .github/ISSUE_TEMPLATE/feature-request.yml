@@ -15,9 +15,9 @@ body:
     id: prerequisites
     attributes:
       label: 提交前自检
-    options:
-      - label: 我已经检索过Issue，确认没有重复的功能提议
-        required: true
+      options:
+        - label: 我已经检索过Issue，确认没有重复的功能提议
+          required: true
 
   - type: input
     id: feature-name
