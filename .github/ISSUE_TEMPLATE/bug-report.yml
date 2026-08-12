@@ -2,7 +2,7 @@ name: Bug 问题反馈
 description: 提交程序异常、报错、功能缺陷等 Bug 问题
 title: "[Bug] "
 labels: [未验证]
-issue_types: [Bug]
+type: Bug
 assignees: []
 body:
   - type: markdown
@@ -22,7 +22,7 @@ body:
           required: true
 
   - type: input
-    id: bug_title
+    id: bug_short
     attributes:
       label: 问题简要描述
       description: 一句话说明出现了什么问题
@@ -31,7 +31,7 @@ body:
       required: true
 
   - type: textarea
-    id: bug-step
+    id: reproduce_step
     attributes:
       label: 复现步骤
       description: 请详细写出复现该问题的完整操作步骤
@@ -43,7 +43,7 @@ body:
       required: true
 
   - type: textarea
-    id: bug-expect
+    id: expect_result
     attributes:
       label: 预期表现
       description: 正常情况下应该出现的结果
@@ -51,7 +51,7 @@ body:
       required: true
 
   - type: textarea
-    id: bug-real
+    id: real_result
     attributes:
       label: 实际表现
       description: 现在实际出现的错误、异常、现象
@@ -59,7 +59,7 @@ body:
       required: true
 
   - type: textarea
-    id: bug-log
+    id: error_log
     attributes:
       label: 报错信息 / 日志
       description: 如有控制台报错、接口报错、崩溃日志请粘贴在此
@@ -68,7 +68,7 @@ body:
       required: false
 
   - type: textarea
-    id: bug-screenshot
+    id: media_attach
     attributes:
       label: 截图/录屏
       description: 上传问题截图、操作录屏可极大提升排查效率
