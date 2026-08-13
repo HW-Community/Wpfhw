@@ -175,6 +175,14 @@ public partial class MainWindow : Window
         DoSearch();
     }
 
+    private void TxtSearchKey_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            BtnSearch_Click(sender, new RoutedEventArgs());
+        }
+    }
+
     private async void DoSearch()
     {
         _searchCts?.Cancel();
