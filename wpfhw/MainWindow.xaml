@@ -420,7 +420,7 @@
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <TextBox x:Name="txtSearchKey" Width="300" 
                                      Style="{StaticResource ModernTextBox}"
-                                     Tag="搜索模组..."
+                                     Tag="搜索模组(支持中文)..."
                                      Margin="0 0 10 0"
                                      KeyDown="TxtSearchKey_KeyDown"/>
                             
