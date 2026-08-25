@@ -40,7 +40,7 @@ jobs:
               echo "→ 设置为: 拒绝"
               ;;
             "duplicate")
-              LABELS='{"labels":["重复"]}'
+              LABELS='{"labels":["重复: ("]}'
               echo "→ 设置为: 重复"
               ;;
             *)
