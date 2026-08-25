@@ -1,30 +1,156 @@
-name: Issue‑Close‑Bot
-on:
+name: Issue-Close-Bot
+
+"on":
   issues:
+    types: [closed]
+  pull_request:
     types: [closed]
 
 permissions:
   issues: write
+  pull-requests: write
   contents: read
 
 jobs:
-  run:
+  handle-issue-close:
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     steps:
-      - name: 获取关闭原因并设置标签
+      - name: 根据关闭原因设置 Issue 标签
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          STATE_REASON: ${{ github.event.issue.state_reason }}
         run: |
-          echo "完整事件数据："
-          echo '${{ toJson(github.event) }}'
+          echo "Issue #$ISSUE_NUMBER 关闭原因: $STATE_REASON"
 
-          REASON="${{ github.event.issue.state_reason }}"
-          echo "关闭原因 = $REASON"
+          API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER"
+          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
 
-          API_URL="https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}"
-          HEADER_TOKEN="Authorization: token ${{ secrets.GITHUB_TOKEN }}"
-          HEADER_ACCEPT="Accept: application/vnd.github.v3+json"
+          # 根据 state_reason 决定要设置的标签
+          case "$STATE_REASON" in
+            "completed")
+              LABELS='{"labels":["完成"]}'
+              echo "→ 设置为: 完成"
+              ;;
+            "not_planned")
+              LABELS='{"labels":["拒绝"]}'
+              echo "→ 设置为: 拒绝"
+              ;;
+            "duplicate")
+              LABELS='{"labels":["重复"]}'
+              echo "→ 设置为: 重复"
+              ;;
+            *)
+              echo "→ 未处理的关闭原因: $STATE_REASON，跳过"
+              exit 0
+              ;;
+          esac
 
-          if [ "$REASON" = "not_planned" ];then
-            curl -X PATCH -H "$HEADER_TOKEN" -H "$HEADER_ACCEPT" "$API_URL" -d '{"labels":["拒绝"]}'
-          elif [ "$REASON" = "duplicate" ];then
-            curl -X PATCH -H "$HEADER_TOKEN" -H "$HEADER_ACCEPT" "$API_URL" -d '{"labels":["重复: ("]}'
+          # 直接覆盖所有标签为新标签（等效于清空后添加）
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X PATCH \
+            -H "$AUTH_HEADER" \
+            -H "$ACCEPT_HEADER" \
+            "$API_URL" \
+            -d "$LABELS")
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ 标签更新成功"
+          else
+            echo "✗ 标签更新失败，HTTP 状态码: $HTTP_CODE"
+            exit 1
+          fi
+
+  handle-pr-close:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 处理 PR 关闭/合并事件
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          echo "PR #$PR_NUMBER 事件: $([ "$PR_MERGED" = "true" ] && echo '已合并' || echo '已关闭（未合并）')"
+
+          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
+
+          # ---------- 通用函数：更新 Issue/PR 标签 ----------
+          update_labels() {
+            local num=$1
+            local labels_json=$2
+            local label_desc=$3
+            local kind=$4   # "Issue" or "PR"
+
+            local api_url="https://api.github.com/repos/$REPO/issues/$num"
+            echo "  · 处理 $kind #$num → 设置标签: $label_desc"
+
+            local http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X PATCH \
+              -H "$AUTH_HEADER" \
+              -H "$ACCEPT_HEADER" \
+              "$api_url" \
+              -d "$labels_json")
+
+            if [ "$http_code" = "200" ]; then
+              echo "    ✓ 成功"
+            else
+              echo "    ✗ 失败 (HTTP $http_code)"
+            fi
+          }
+
+          # ---------- 从 PR body 中解析关联的 Issue 编号 ----------
+          extract_linked_issues() {
+            # 优先使用 GitHub CLI（如已安装）
+            if command -v gh &> /dev/null; then
+              gh pr view "$PR_NUMBER" --repo "$REPO" \
+                --json closingIssuesReferences \
+                -q '.closingIssuesReferences[].number' 2>/dev/null || true
+            fi
+
+            # 兜底：通过 REST API 获取 timeline 中的 "closed as completed" 事件
+            local api_url="https://api.github.com/repos/$REPO/issues/$PR_NUMBER/timeline?per_page=100"
+            local api_result
+            api_result=$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" "$api_url" 2>/dev/null || true)
+            if command -v jq &> /dev/null && [ -n "$api_result" ]; then
+              echo "$api_result" | jq -r '.[] | select(.event == "cross-referenced") | .source.issue.number' 2>/dev/null || true
+            fi
+
+            # 最后兜底：正则匹配 PR_BODY 中的 Closes/Fixes/Resolves #123 等关键词
+            local patterns="(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+#([0-9]+)"
+            echo "$PR_BODY" | grep -ioE "$patterns" | grep -oE '[0-9]+' || true
+          }
+
+          # ==================================================
+          # 分支 1: PR 被合并 → 处理关联 Issue（清空+打"完成"）
+          # ==================================================
+          if [ "$PR_MERGED" = "true" ]; then
+            echo ""
+            echo "====== PR 已合并，处理关联 Issue ======"
+
+            LINKED_ISSUES=$(extract_linked_issues | sort -u | uniq)
+
+            if [ -z "$LINKED_ISSUES" ]; then
+              echo "→ 未在 PR #$PR_NUMBER 中找到关联的 Issue"
+            else
+              echo "→ 找到关联 Issues: $(echo "$LINKED_ISSUES" | tr '\n' ' ')"
+              for ISSUE_NUM in $LINKED_ISSUES; do
+                # 设置标签（直接覆盖 = 清空原有标签 + 添加新标签）
+                update_labels "$ISSUE_NUM" '{"labels":["完成"]}' "完成" "Issue"
+              done
+            fi
+
+          # ==================================================
+          # 分支 2: PR 被关闭（未合并）→ 清空+给 PR 打"拒绝"
+          # ==================================================
+          else
+            echo ""
+            echo "====== PR 已关闭（未合并），给 PR 打拒绝标签 ======"
+            update_labels "$PR_NUMBER" '{"labels":["拒绝"]}' "拒绝" "PR"
           fi
