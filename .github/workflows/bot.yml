@@ -1,122 +1,159 @@
-name: Issue Auto Moderation
+name: Issue Bot
+
 on:
   issues:
     types: [opened]
+  pull_request:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
 
 jobs:
-  moderate:
+  triage:
+    if: github.event_name == 'issues'
     runs-on: ubuntu-latest
-    permissions:
-      issues: write
-      contents: read
+    timeout-minutes: 10
     steps:
-      - name: Get issue info
-        run: |
-          echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_ENV
-          echo "BODY=${{ github.event.issue.body }}" >> $GITHUB_ENV
-          echo "ISSUE_NUMBER=${{ github.event.issue.number }}" >> $GITHUB_ENV
-
-      - name: Fetch recent issues (REST‑API, no gh cli)
+      - name: 查重并处理新 issue
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$REPO/issues?state=open&per_page=100" > filtered_issues.json
-
-      - name: Call DeepSeek AI judge
-        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          ISSUE_TITLE="$TITLE"
-          ISSUE_BODY="$BODY"
-          ISSUE_NUM=${{ github.event.issue.number }}
-          ISSUES_JSON=$(cat filtered_issues.json)
+          set -euo pipefail
 
-          RESPONSE=$(curl -s -X POST https://api.deepseek.com/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $DEEPSEEK_KEY" \
-            -d '{
-              "model": "deepseek-chat",
-              "temperature": 0.0,
-              "response_format": {"type": "json_object"},
-              "messages": [
-                {
-                  "role": "system",
-                  "content": "你是严格的Issue重复审核机器人，只输出标准JSON，禁止任何多余文字、markdown、解释。判定规则：1.只要标题和正文的核心功能诉求完全一致，仅仅是措辞、语序、长短不同，一律判定duplicate；例如“Esc返回上一级”和“增加Esc返回上一个页面”属于完全重复；2.乱码、无意义灌水判定为reject；3.只有全新的、和所有历史Issue诉求都不同的内容才判定为normal。【铁律】如果你输出type:\"duplicate\"，origin_id绝不允许为null，必须从提供的历史Issue列表里挑选最匹配条目的number字段填入；若列表无匹配项，禁止判定duplicate，只能返回normal，origin_id=null。严禁返回当前待审核issue的编号。输出格式：{\"type\":\"reject|duplicate|normal\",\"origin_id\":number|null}"
-                },
-                {
-                  "role": "user",
-                  "content": "当前Issue编号：'"$ISSUE_NUM"'，标题：'"$ISSUE_TITLE"'，正文：'"$ISSUE_BODY"'，历史Issue列表：'"$ISSUES_JSON"'"
-                }
-              ]
+          # 确保所需标签存在（已存在则更新）
+          gh label create "未验证"   --color "FBCA04" --description "待人工验证" --force >/dev/null 2>&1 || true
+          gh label create "垃圾内容" --color "D73C2E" --description "垃圾/无效内容" --force >/dev/null 2>&1 || true
+          gh label create "重复"    --color "5319E7" --description "与其他开放issue重复" --force >/dev/null 2>&1 || true
+
+          # 读取新 issue 内容
+          NEW_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q '.title')
+          NEW_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q '.body // ""')
+
+          # 读取全部开放 issue
+          ISSUES_JSON=$(gh issue list --state open --json number,title,body --limit 1000)
+
+          # 组装 DeepSeek 请求体（用 jq 安全转义）
+          PAYLOAD=$(jq -n \
+            --arg sys "你是一个 issue 分类助手。请对比新 issue 与仓库中其他开放 issue，判断属于以下哪一类：
+          normal — 内容正常，与现有开放 issue 不重复
+          duplicate — 与某个已有开放 issue 诉求重复，需在 origin_id 中指明该 issue 编号
+          reject — 垃圾内容/无效/测试/无意义内容
+          只返回 JSON，格式严格为：{\"type\":\"normal|duplicate|reject\",\"origin_id\":编号或null}" \
+            --arg new_title "$NEW_TITLE" \
+            --arg new_body "$NEW_BODY" \
+            --argjson new_num "$ISSUE_NUMBER" \
+            --argjson issues "$ISSUES_JSON" \
+            '{
+              model: "deepseek-chat",
+              messages: [
+                {role: "system", content: $sys},
+                {role: "user", content: (
+                  "新 issue 编号: \($new_num)\n" +
+                  "新 issue 标题: \($new_title)\n" +
+                  "新 issue 内容: \($new_body)\n\n" +
+                  "其他开放 issue 列表（已排除新 issue 自身）：\n" +
+                  ([$issues[] | select(.number != $new_num)
+                    | "编号\(.number) 标题: \(.title) 内容: \(.body // "无内容")"]
+                    | join("\n"))
+                )}
+              ],
+              response_format: {type: "json_object"},
+              stream: false
             }')
 
-          echo "$RESPONSE" | jq -r '.choices[0].message.content' > result.json
-          sed -i 's/```json//g;s/```//g' result.json
-          cat result.json
+          # 调用 DeepSeek，失败则降级为「未验证」交人工处理
+          RESPONSE=$(curl -sS --max-time 90 -X POST https://api.deepseek.com/chat/completions \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true)
 
-          AI_TYPE=$(jq -r '.type' result.json || echo "normal")
-          ORIGIN_ID=$(jq -r '.origin_id' result.json || echo "null")
-
-          # 兜底：duplicate却无编号 → 降级normal
-          if [[ "$AI_TYPE" == "duplicate" && "$ORIGIN_ID" == "null" ]]; then
-            AI_TYPE="normal"
+          if ! echo "$RESPONSE" | jq -e '.choices[0].message.content' >/dev/null 2>&1; then
+            echo "DeepSeek 调用失败或返回异常，降级为未验证。响应：$RESPONSE"
+            gh issue edit "$ISSUE_NUMBER" --add-label "未验证"
+            exit 0
           fi
 
-          echo "AI_TYPE=$AI_TYPE" >> $GITHUB_ENV
-          echo "ORIGIN_ID=$ORIGIN_ID" >> $GITHUB_ENV
+          CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          TYPE=$(echo "$CONTENT" | jq -r '.type // empty' || true)
+          ORIGIN_ID=$(echo "$CONTENT" | jq -r '.origin_id // empty' || true)
 
-      - name: Handle normal issue
-        if: env.AI_TYPE == 'normal'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              labels: ["未验证"]
-            })
+          echo "分类结果: type=$TYPE origin_id=$ORIGIN_ID"
 
-      - name: Handle reject issue
-        if: env.AI_TYPE == 'reject'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              labels: ["垃圾内容"]
-            })
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              state: 'closed'
-            })
+          case "$TYPE" in
+            normal)
+              gh issue edit "$ISSUE_NUMBER" --add-label "未验证"
+              ;;
+            reject)
+              gh issue edit "$ISSUE_NUMBER" --add-label "垃圾内容"
+              gh issue close "$ISSUE_NUMBER"
+              ;;
+            duplicate)
+              gh issue edit "$ISSUE_NUMBER" --add-label "重复"
+              if [ -n "$ORIGIN_ID" ]; then
+                gh issue comment "$ISSUE_NUMBER" --body "此issue与#${ORIGIN_ID}诉求重复，已关闭"
+              else
+                gh issue comment "$ISSUE_NUMBER" --body "此issue与其他开放issue诉求重复，已关闭"
+              fi
+              gh issue close "$ISSUE_NUMBER"
+              ;;
+            *)
+              echo "未知 type='$TYPE'，降级为未验证。原始返回：$CONTENT"
+              gh issue edit "$ISSUE_NUMBER" --add-label "未验证"
+              ;;
+          esac
 
-      - name: Handle duplicate issue
-        if: env.AI_TYPE == 'duplicate'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              labels: ["重复"]
-            })
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              body: `此issue与#${{ env.ORIGIN_ID }}诉求重复，已关闭`
-            })
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ env.ISSUE_NUMBER }},
-              state: 'closed'
-            })
+  pr_review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: AI 生成 PR 简评
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          # 读取 PR 标题、描述与 diff
+          PR_TITLE=$(gh pr view "$PR_NUMBER" --json title -q '.title')
+          PR_BODY=$(gh pr view "$PR_NUMBER" --json body -q '.body // ""')
+          PR_DIFF=$(gh pr diff "$PR_NUMBER" 2>/dev/null || true)
+
+          # 截断 diff，避免超出模型上下文
+          PR_DIFF_TRUNCATED=$(printf '%s' "$PR_DIFF" | head -c 20000)
+
+          # 组装 DeepSeek 请求体
+          PAYLOAD=$(jq -n \
+            --arg sys "你是一位资深代码审查者。请基于 PR 标题、描述和 diff，生成一条简短专业的 Markdown 评论，包含改动要点总结与一两条改进建议。总字数严格不超过 250 字，直接输出 Markdown 正文，不要加标题、不要输出 JSON、不要任何解释。" \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg diff "$PR_DIFF_TRUNCATED" \
+            '{
+              model: "deepseek-chat",
+              messages: [
+                {role: "system", content: $sys},
+                {role: "user", content: ("PR 标题: \($title)\nPR 描述: \($body)\n\nDiff:\n\($diff)")}
+              ],
+              stream: false
+            }')
+
+          # 调用 DeepSeek，失败则跳过评论
+          RESPONSE=$(curl -sS --max-time 90 -X POST https://api.deepseek.com/chat/completions \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" || true)
+
+          if ! echo "$RESPONSE" | jq -e '.choices[0].message.content' >/dev/null 2>&1; then
+            echo "DeepSeek 调用失败，跳过 PR 评论。响应：$RESPONSE"
+            exit 0
+          fi
+
+          COMMENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+
+          gh pr comment "$PR_NUMBER" --body "$COMMENT"
