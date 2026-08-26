@@ -10,11 +10,12 @@ jobs:
       issues: write
       contents: read
     steps:
-      - name: Set up GitHub CLI
-        uses: actions/setup-node@v4
+      # ✅ 正确安装 GitHub CLI，不用npm！
+      - name: Setup GitHub CLI
+        uses: actions/setup-go@v5
         with:
-          node-version: 20
-      - run: npm install -g gh
+          go-version: '1.23'
+      - run: sudo apt update && sudo apt install gh -y
 
       - name: Get issue info
         run: |
@@ -24,7 +25,6 @@ jobs:
 
       - name: Fetch recent issues
         run: |
-          # 拉取全部开放issue，带上编号、标题、正文，limit拉满100确保旧issue#13被包含
           gh issue list --state open --limit 100 --json number,title,body > filtered_issues.json
 
       - name: Call DeepSeek AI judge
@@ -56,14 +56,12 @@ jobs:
             }')
 
           echo "$RESPONSE" | jq -r '.choices[0].message.content' > result.json
-          # 清洗AI偶尔输出的代码块标记
           sed -i 's/```json//g;s/```//g' result.json
           cat result.json
 
           AI_TYPE=$(jq -r '.type' result.json || echo "normal")
           ORIGIN_ID=$(jq -r '.origin_id' result.json || echo "null")
 
-          # 核心修复：AI判定duplicate但origin_id为空，强制降级为normal
           if [[ "$AI_TYPE" == "duplicate" && "$ORIGIN_ID" == "null" ]]; then
             AI_TYPE="normal"
           fi
