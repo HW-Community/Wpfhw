@@ -6,31 +6,34 @@ on:
 jobs:
   moderate:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
     steps:
+      - name: Set up GitHub CLI
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install -g gh
+
       - name: Get issue info
-        id: issue
         run: |
           echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_ENV
           echo "BODY=${{ github.event.issue.body }}" >> $GITHUB_ENV
           echo "ISSUE_NUMBER=${{ github.event.issue.number }}" >> $GITHUB_ENV
 
       - name: Fetch recent issues
-        id: fetch_issues
         run: |
-          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues?state=all&per_page=100 > issues.json
-          
-          # 【关键修复】删掉当前新建的issue，防止AI匹配到自己
-          jq --arg n "$ISSUE_NUMBER" 'map(select(.number != ($n|tonumber)))' issues.json > filtered_issues.json
+          # 拉取全部开放issue，带上编号、标题、正文，limit拉满100确保旧issue#13被包含
+          gh issue list --state open --limit 100 --json number,title,body > filtered_issues.json
 
       - name: Call DeepSeek AI judge
-        id: ai_judge
         env:
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
         run: |
           ISSUE_TITLE="$TITLE"
           ISSUE_BODY="$BODY"
-          ISSUE_NUM="$ISSUE_NUMBER"
+          ISSUE_NUM=${{ github.event.issue.number }}
           ISSUES_JSON=$(cat filtered_issues.json)
 
           RESPONSE=$(curl -s -X POST https://api.deepseek.com/chat/completions \
@@ -38,11 +41,12 @@ jobs:
             -H "Authorization: Bearer $DEEPSEEK_KEY" \
             -d '{
               "model": "deepseek-chat",
-              "temperature": 0.1,
+              "temperature": 0.0,
+              "response_format": {"type": "json_object"},
               "messages": [
                 {
                   "role": "system",
-                  "content": "你是Issue非常严格的重复审核机器人，只输出标准JSON，禁止多余文字。核心规则：只要新Issue和历史Issue的**核心功能诉求完全一致**，仅措辞、语序不同，一律判定duplicate。判定示例：历史：用Esc返回上一级；新issue：增加Esc返回上一个页面 → 判定duplicate；历史：希望按Esc回退上一页；新issue：Esc键返回上层界面 → 判定duplicate。历史：希望增加深色主题模式；新issue：希望增加暗黑主题模式。乱码灌水为reject，全新诉求才是normal。重复返回对应历史issue编号origin_id，严禁返回当前issue编号，无重复则origin_id为null。格式：{\"type\":\"reject|duplicate|normal\",\"origin_id\":number|null}"
+                  "content": "你是严格的Issue重复审核机器人，只输出标准JSON，禁止任何多余文字、markdown、解释。判定规则：1.只要标题和正文的核心功能诉求完全一致，仅仅是措辞、语序、长短不同，一律判定duplicate；例如“Esc返回上一级”和“增加Esc返回上一个页面”属于完全重复；2.乱码、无意义灌水判定为reject；3.只有全新的、和所有历史Issue诉求都不同的内容才判定为normal。【铁律】如果你输出type:\"duplicate\"，origin_id绝不允许为null，必须从提供的历史Issue列表里挑选最匹配条目的number字段填入；若列表无匹配项，禁止判定duplicate，只能返回normal，origin_id=null。严禁返回当前待审核issue的编号。输出格式：{\"type\":\"reject|duplicate|normal\",\"origin_id\":number|null}"
                 },
                 {
                   "role": "user",
@@ -52,60 +56,36 @@ jobs:
             }')
 
           echo "$RESPONSE" | jq -r '.choices[0].message.content' > result.json
+          # 清洗AI偶尔输出的代码块标记
+          sed -i 's/```json//g;s/```//g' result.json
           cat result.json
 
-          AI_TYPE=$(jq -r '.type' result.json)
-          ORIGIN_ID=$(jq -r '.origin_id' result.json)
+          AI_TYPE=$(jq -r '.type' result.json || echo "normal")
+          ORIGIN_ID=$(jq -r '.origin_id' result.json || echo "null")
+
+          # 核心修复：AI判定duplicate但origin_id为空，强制降级为normal
+          if [[ "$AI_TYPE" == "duplicate" && "$ORIGIN_ID" == "null" ]]; then
+            AI_TYPE="normal"
+          fi
+
           echo "AI_TYPE=$AI_TYPE" >> $GITHUB_ENV
           echo "ORIGIN_ID=$ORIGIN_ID" >> $GITHUB_ENV
+          echo "最终判定：$AI_TYPE，重复源编号：$ORIGIN_ID"
 
       - name: Handle normal issue
         if: env.AI_TYPE == 'normal'
         run: |
-          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"labels":["未验证"]}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
+          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "未验证"
 
       - name: Handle reject issue
         if: env.AI_TYPE == 'reject'
         run: |
-          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"labels":["拒绝"]}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
-
-          curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels/未验证
-
-          curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"state":"closed"}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}
-
-          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"body":"⚠️ 您的Issue描述过于简略、无有效内容，已自动关闭，请完善内容后重新提交。"}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/comments
+          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "垃圾内容"
+          gh issue close ${{ env.ISSUE_NUMBER }}
 
       - name: Handle duplicate issue
         if: env.AI_TYPE == 'duplicate'
         run: |
-          ORIGIN=${{ env.ORIGIN_ID }}
-          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"labels":["重复"]}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
-
-          curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels/未验证
-
-          curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"state":"closed"}' \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}
-
-          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"body\":\"🔍 此Issue与#$ORIGIN高度重复，已自动关闭，请前往原Issue跟进。\"}" \
-            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/comments
+          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "重复"
+          gh issue comment ${{ env.ISSUE_NUMBER }} -b "此issue与#${{ env.ORIGIN_ID }}诉求重复，已关闭"
+          gh issue close ${{ env.ISSUE_NUMBER }}
