@@ -7,8 +7,6 @@ on:
     types: [opened]
 
 permissions:
-  issues: write
-  pull-requests: write
   contents: read
 
 jobs:
@@ -19,13 +17,14 @@ jobs:
     steps:
       - name: 查重并处理新 issue
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          GH_APP_ID: ${{ vars.APP_ID }}
+          GH_GITHUB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           log() { echo "[$(date '+%H:%M:%S')] $*"; }
 
-          # 确保所需标签存在（已存在则更新）
+          # 确保所需标签存在
           for lbl in "未验证:FBCA04:待人工验证" "垃圾内容:D73C2E:垃圾/无效内容" "重复:5319E7:与其他开放issue重复"; do
             name="${lbl%%:*}"
             rest="${lbl#*:}"
@@ -34,36 +33,85 @@ jobs:
             gh label create "$name" --color "$color" --description "$desc" --force >/dev/null 2>&1 || true
           done
 
+          # ---- 读取新 issue ----
           log "读取新 issue #${ISSUE_NUMBER}..."
           NEW_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q '.title' 2>/dev/null || echo "")
           NEW_BODY=$(gh issue view "$ISSUE_NUMBER" --json body -q '(.body // "")' 2>/dev/null || echo "")
 
           if [ -z "$NEW_TITLE" ]; then
-            log "ERROR: 无法读取 issue 标题（可能是 API 竞态或权限问题），降级为未验证"
+            log "ERROR: 无法读取 issue 标题，降级为未验证"
             gh issue edit "$ISSUE_NUMBER" --add-label "未验证" 2>/dev/null || true
             exit 0
           fi
           log "新 issue 标题: $NEW_TITLE"
 
-          # 读取全部开放 issue
+          # ---- 读取开放 issue 列表 ----
           log "读取开放 issue 列表..."
           ISSUES_JSON=$(gh issue list --state open --json number,title,body --limit 1000 2>/dev/null || echo "[]")
 
           if ! echo "$ISSUES_JSON" | jq -e '.' >/dev/null 2>&1; then
-            log "WARN: issue 列表 JSON 解析失败，降级为仅新 issue 自身"
+            log "WARN: issue 列表 JSON 解析失败，降级为空列表"
             ISSUES_JSON="[]"
           fi
-          OTHER_COUNT=$(echo "$ISSUES_JSON" | jq --argjson n "$ISSUE_NUMBER" '[.[] | select(.number != $n)] | length')
-          log "共读取到 ${OTHER_COUNT} 个其他开放 issue"
 
-          # 组装 DeepSeek 请求体
+          OTHER_COUNT=$(echo "$ISSUES_JSON" | jq --argjson n "$ISSUE_NUMBER" '[.[] | select(.number != $n)] | length')
+          log "共 ${OTHER_COUNT} 个其他开放 issue"
+
+          # ---- 本地标题相似度预检 ----
+          # 用 jq 计算新 issue 标题与每个已有 issue 标题的字符级相似度
+          log "执行本地标题相似度预检..."
+          PRECHECK_RESULT=$(echo "$ISSUES_JSON" | jq -r \
+            --arg new_title "$NEW_TITLE" \
+            --argjson n "$ISSUE_NUMBER" \
+            '
+            def char_set(s): (s | split("")) | map(select(. != " " and . != ""));
+            def similarity(a; b):
+              char_set(a) as $ca |
+              char_set(b) as $cb |
+              ($ca | length) as $la |
+              ($cb | length) as $lb |
+              if $la == 0 or $lb == 0 then 0
+              else
+                ([$ca[] | select(. as $c | $cb | index($c) != null)] | length) * 100 /
+                (if $la > $lb then $la else $lb end)
+              end;
+            [.[] | select(.number != $n) |
+              {number, title, sim: similarity($new_title; .title)} |
+              select(.sim > 40)] |
+            sort_by(.sim) | reverse |
+            (.[0:5]) | .[] |
+            "NUM \(.number) SIM \(.sim | floor) TITLE \(.title)"
+            ' 2>/dev/null || echo "")
+
+          if [ -n "$PRECHECK_RESULT" ]; then
+            log "本地预检命中相似 issue:"
+            echo "$PRECHECK_RESULT" | while IFS= read -r line; do log "  $line"; done
+            PRECHECK_HINT=$(echo "$PRECHECK_RESULT" | head -1 | grep -oE 'NUM [0-9]+' | grep -oE '[0-9]+' || echo "")
+          else
+            log "本地预检未发现高相似度 issue"
+            PRECHECK_HINT=""
+          fi
+
+          # ---- 构造 AI 请求 ----
           log "构造 AI 请求..."
+          ISSUES_TEXT=$(echo "$ISSUES_JSON" | jq -r \
+            --argjson n "$ISSUE_NUMBER" \
+            '[$.[] | select(.number != $n) |
+              "  编号\(.number) | 标题: \(.title) | 内容: \(.body // "无内容")"] |
+            join("\n")' 2>/dev/null || echo "(无其他开放 issue)")
+
+          HINT_TEXT=""
+          if [ -n "$PRECHECK_HINT" ]; then
+            HINT_TEXT="\n\n【本地预检提示】新 issue 标题与 issue ${PRECHECK_HINT} 有较高相似度，请优先核实是否重复。"
+          fi
+
           PAYLOAD=$(jq -n \
-            --arg sys '你是一个 issue 分类助手。对比新 issue 与仓库中其他开放 issue，判断类型：normal=内容正常且不重复；duplicate=与某已有开放 issue 诉求重复（需在 origin_id 指明编号）；reject=垃圾/无效/测试/广告。只返回 JSON，格式：{"type":"normal|duplicate|reject","origin_id":编号或null}' \
+            --arg sys '你是 issue 分类助手。对比新 issue 与仓库中其他开放 issue，判断类型：normal=内容正常且不重复；duplicate=与某已有开放 issue 诉求重复（需在 origin_id 指明该 issue 编号）；reject=垃圾/无效/测试/广告。重复判定标准：语义相同或核心功能诉求一致即视为重复，即使措辞不同。只返回 JSON，格式：{"type":"normal|duplicate|reject","origin_id":编号或null}' \
             --arg new_title "$NEW_TITLE" \
             --arg new_body "$NEW_BODY" \
             --argjson new_num "$ISSUE_NUMBER" \
-            --argjson issues "$ISSUES_JSON" \
+            --arg issues_text "$ISSUES_TEXT" \
+            --arg hint "$HINT_TEXT" \
             '{
               model: "deepseek-chat",
               messages: [
@@ -72,20 +120,17 @@ jobs:
                   "新 issue 编号: \($new_num)\n" +
                   "新 issue 标题: \($new_title)\n" +
                   "新 issue 内容: \($new_body)\n\n" +
-                  "其他开放 issue 列表（已排除新 issue 自身）：\n" +
-                  ([$issues[] | select(.number != $new_num)
-                    | "  编号\(.number) | 标题: \(.title) | 内容: \(.body // "无内容")"]
-                    | join("\n"))
+                  "其他开放 issue 列表：\n\($issues_text)\($hint)"
                 )}
               ],
               response_format: {type: "json_object"},
               stream: false
             }')
 
-          # 调用 DeepSeek
+          # ---- 调用 DeepSeek ----
           log "调用 DeepSeek API..."
           RESPONSE=$(curl -sS --max-time 90 -X POST https://api.deepseek.com/chat/completions \
-            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" 2>/dev/null || true)
 
@@ -106,6 +151,14 @@ jobs:
           ORIGIN_ID=$(echo "$CONTENT" | jq -r '.origin_id // ""' 2>/dev/null || echo "")
 
           log "AI 分类结果: type=$TYPE origin_id=$ORIGIN_ID"
+
+          # ---- 兜底：本地预检命中但 AI 未判 duplicate，则强制改判 ----
+          if [ "$TYPE" = "normal" ] && [ -n "$PRECHECK_HINT" ]; then
+            PRECHECK_NUM="${PRECHECK_HINT##\#}"
+            log "AI 判 normal 但本地预检命中 ${PRECHECK_HINT}，升级为 duplicate"
+            TYPE="duplicate"
+            ORIGIN_ID="$PRECHECK_NUM"
+          fi
 
           case "$TYPE" in
             normal)
@@ -142,8 +195,9 @@ jobs:
     steps:
       - name: AI 生成 PR 简评
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_KEY }}
+          GH_APP_ID: ${{ vars.APP_ID }}
+          GH_GITHUB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -158,12 +212,11 @@ jobs:
             exit 0
           fi
 
-          # 截断 diff，避免超出模型上下文
           PR_DIFF_TRUNCATED=$(printf '%s' "$PR_DIFF" | head -c 20000)
 
           log "构造 AI 请求..."
           PAYLOAD=$(jq -n \
-            --arg sys "你是一位资深代码审查者。请基于 PR 标题、描述和 diff，生成一条简短专业的 Markdown 评论，包含改动要点总结与一两条改进建议。总字数严格不超过 250 字，直接输出 Markdown 正文，不要加标题、不要输出 JSON、不要任何解释。" \
+            --arg sys '你是资深代码审查者。基于 PR 标题、描述和 diff，生成一条简短专业的 Markdown 评论，包含改动要点总结与一两条改进建议。总字数严格不超过 250 字，直接输出 Markdown 正文，不要加标题、不要输出 JSON、不要任何解释。' \
             --arg title "$PR_TITLE" \
             --arg body "$PR_BODY" \
             --arg diff "$PR_DIFF_TRUNCATED" \
@@ -178,7 +231,7 @@ jobs:
 
           log "调用 DeepSeek API..."
           RESPONSE=$(curl -sS --max-time 90 -X POST https://api.deepseek.com/chat/completions \
-            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" 2>/dev/null || true)
 
