@@ -1,34 +1,36 @@
 name: Issue-Close-Bot
-
 "on":
   issues:
     types: [closed]
   pull_request:
     types: [closed]
-
 permissions:
   issues: write
   pull-requests: write
   contents: read
-
 jobs:
   handle-issue-close:
     if: github.event_name == 'issues'
     runs-on: ubuntu-latest
     steps:
+      - name: 获取 GitHub‑App Token（机器人身份）
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: 根据关闭原因设置 Issue 标签
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           STATE_REASON: ${{ github.event.issue.state_reason }}
         run: |
           echo "Issue #$ISSUE_NUMBER 关闭原因: $STATE_REASON"
-
           API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER"
           AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
           ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
-
           # 根据 state_reason 决定要设置的标签
           case "$STATE_REASON" in
             "completed")
@@ -48,7 +50,6 @@ jobs:
               exit 0
               ;;
           esac
-
           # 直接覆盖所有标签为新标签（等效于清空后添加）
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH \
@@ -56,7 +57,6 @@ jobs:
             -H "$ACCEPT_HEADER" \
             "$API_URL" \
             -d "$LABELS")
-
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✓ 标签更新成功"
           else
@@ -68,43 +68,44 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - name: 获取 GitHub‑App Token（机器人身份）
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: 处理 PR 关闭/合并事件
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           echo "PR #$PR_NUMBER 事件: $([ "$PR_MERGED" = "true" ] && echo '已合并' || echo '已关闭（未合并）')"
-
           AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
           ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
-
           # ---------- 通用函数：更新 Issue/PR 标签 ----------
           update_labels() {
             local num=$1
             local labels_json=$2
             local label_desc=$3
             local kind=$4   # "Issue" or "PR"
-
             local api_url="https://api.github.com/repos/$REPO/issues/$num"
             echo "  · 处理 $kind #$num → 设置标签: $label_desc"
-
             local http_code=$(curl -s -o /dev/null -w "%{http_code}" \
               -X PATCH \
               -H "$AUTH_HEADER" \
               -H "$ACCEPT_HEADER" \
               "$api_url" \
               -d "$labels_json")
-
             if [ "$http_code" = "200" ]; then
               echo "    ✓ 成功"
             else
               echo "    ✗ 失败 (HTTP $http_code)"
             fi
           }
-
           # ---------- 从 PR body 中解析关联的 Issue 编号 ----------
           extract_linked_issues() {
             # 优先使用 GitHub CLI（如已安装）
@@ -113,7 +114,6 @@ jobs:
                 --json closingIssuesReferences \
                 -q '.closingIssuesReferences[].number' 2>/dev/null || true
             fi
-
             # 兜底：通过 REST API 获取 timeline 中的 "closed as completed" 事件
             local api_url="https://api.github.com/repos/$REPO/issues/$PR_NUMBER/timeline?per_page=100"
             local api_result
@@ -121,21 +121,17 @@ jobs:
             if command -v jq &> /dev/null && [ -n "$api_result" ]; then
               echo "$api_result" | jq -r '.[] | select(.event == "cross-referenced") | .source.issue.number' 2>/dev/null || true
             fi
-
             # 最后兜底：正则匹配 PR_BODY 中的 Closes/Fixes/Resolves #123 等关键词
             local patterns="(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+#([0-9]+)"
             echo "$PR_BODY" | grep -ioE "$patterns" | grep -oE '[0-9]+' || true
           }
-
           # ==================================================
           # 分支 1: PR 被合并 → 处理关联 Issue（清空+打"完成"）
           # ==================================================
           if [ "$PR_MERGED" = "true" ]; then
             echo ""
             echo "====== PR 已合并，处理关联 Issue ======"
-
             LINKED_ISSUES=$(extract_linked_issues | sort -u | uniq)
-
             if [ -z "$LINKED_ISSUES" ]; then
               echo "→ 未在 PR #$PR_NUMBER 中找到关联的 Issue"
             else
@@ -145,7 +141,6 @@ jobs:
                 update_labels "$ISSUE_NUM" '{"labels":["完成"]}' "完成" "Issue"
               done
             fi
-
           # ==================================================
           # 分支 2: PR 被关闭（未合并）→ 清空+给 PR 打"拒绝"
           # ==================================================
