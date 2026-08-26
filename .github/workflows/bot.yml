@@ -1,232 +1,111 @@
-name: Issue-Auto-Moderate-Bot
-
-"on":
+name: Issue Auto Moderation
+on:
   issues:
-    types: [opened, closed]
-  pull_request:
-    types: [closed]
-
-permissions:
-  issues: write
-  pull-requests: write
-  contents: read
+    types: [opened]
 
 jobs:
-  # 新建Issue AI自动审核：查重+内容校验
-  issue-moderate:
-    if: github.event_name == 'issues' && github.event.action == 'opened'
+  moderate:
     runs-on: ubuntu-latest
     steps:
-      - name: 获取GitHub App机器人Token
-        id: generate_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: 拉取历史Issue并调用DeepSeek审核
-        env:
-          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUM: ${{ github.event.issue.number }}
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
+      - name: Get issue info
+        id: issue
         run: |
-          API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUM"
-          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
-          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
+          echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_ENV
+          echo "BODY=${{ github.event.issue.body }}" >> $GITHUB_ENV
+          echo "ISSUE_NUMBER=${{ github.event.issue.number }}" >> $GITHUB_ENV
 
-          # 获取最近100条历史Issue摘要（只保留编号和标题，精简token）
-          ALL_ISSUES_SUMMARY=$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-            "https://api.github.com/repos/$REPO/issues?state=all&per_page=100" | \
-            jq -c 'map({number, title})')
-          # 防御空结果，确保 --argjson 不会报错
-          ALL_ISSUES_SUMMARY=${ALL_ISSUES_SUMMARY:-"[]"}
-          echo "$ALL_ISSUES_SUMMARY" | jq . >/dev/null 2>&1 || ALL_ISSUES_SUMMARY="[]"
+      - name: Fetch recent issues
+        id: fetch_issues
+        run: |
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues?state=all&per_page=100 > issues.json
+          
+          # 【关键修复】删掉当前新建的issue，防止AI匹配到自己
+          jq --arg n "$ISSUE_NUMBER" 'map(select(.number != ($n|tonumber)))' issues.json > filtered_issues.json
 
-          echo "=== 开始DeepSeek审核 ==="
+      - name: Call DeepSeek AI judge
+        id: ai_judge
+        env:
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          ISSUE_TITLE="$TITLE"
+          ISSUE_BODY="$BODY"
+          ISSUE_NUM="$ISSUE_NUMBER"
+          ISSUES_JSON=$(cat filtered_issues.json)
 
-          # 用 jq 构造完整请求体，杜绝 JSON 引号冲突
-          PAYLOAD=$(jq -n \
-            --arg title "$ISSUE_TITLE" \
-            --arg body "$ISSUE_BODY" \
-            --argjson issues "$ALL_ISSUES_SUMMARY" \
-            '{
-              model: "deepseek-chat",
-              temperature: 0.1,
-              stream: false,
-              messages: [
+          RESPONSE=$(curl -s -X POST https://api.deepseek.com/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -d '{
+              "model": "deepseek-chat",
+              "temperature": 0.1,
+              "messages": [
                 {
-                  role: "system",
-                  content: "你是严格的仓库Issue审核机器人，只输出纯JSON，无任何多余文字。规则：1. Issue标题/内容无有效信息、灌水、乱码、描述模糊 → {\"type\":\"reject\"}；2. 和历史Issue高度重复 → {\"type\":\"duplicate\",\"origin_issue\":原issue数字编号}；3. 正常有效Issue → {\"type\":\"normal\"}。"
+                  "role": "system",
+                  "content": "你是仓库Issue审核机器人，只输出纯JSON，不许多余解释。规则：1. 标题/正文核心诉求相同，只是措辞、长短、语序不同，一律判定为重复duplicate；2. 乱码、无意义灌水、语句不通的内容判定为reject；3. 正常原创需求判定为normal。重复时必须给出最相似的历史issue编号origin_id；找不到重复，origin_id为空。严禁返回当前待审核issue的编号作为origin_id！输出格式：{\"type\":\"reject|duplicate|normal\",\"origin_id\":数字或空}"
                 },
                 {
-                  role: "user",
-                  content: ("当前Issue标题：" + $title + "，内容：" + $body + "；历史Issue列表：" + ($issues|tostring))
+                  "role": "user",
+                  "content": "当前Issue编号：'"$ISSUE_NUM"'，标题：'"$ISSUE_TITLE"'，正文：'"$ISSUE_BODY"'，历史Issue列表：'"$ISSUES_JSON"'"
                 }
               ]
             }')
 
-          DEEPSEEK_RESP=$(curl -s -X POST "https://api.deepseek.com/chat/completions" \
+          echo "$RESPONSE" | jq -r '.choices[0].message.content' > result.json
+          cat result.json
+
+          AI_TYPE=$(jq -r '.type' result.json)
+          ORIGIN_ID=$(jq -r '.origin_id' result.json)
+          echo "AI_TYPE=$AI_TYPE" >> $GITHUB_ENV
+          echo "ORIGIN_ID=$ORIGIN_ID" >> $GITHUB_ENV
+
+      - name: Handle normal issue
+        if: env.AI_TYPE == 'normal'
+        run: |
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $DEEPSEEK_KEY" \
-            -d "$PAYLOAD")
+            -d '{"labels":["未验证"]}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
 
-          # 解析AI结果，容错处理
-          AI_RAW=$(echo "$DEEPSEEK_RESP" | jq -r '.choices[0].message.content' 2>/dev/null || true)
-          if [[ -z "$AI_RAW" ]]; then
-            echo "DeepSeek调用失败或无响应，跳过自动审核"
-            exit 0
-          fi
-
-          # 校验返回是否合法JSON
-          echo "$AI_RAW" | jq . >/dev/null 2>&1 || {
-            echo "AI返回格式非法，跳过处理"
-            exit 0
-          }
-
-          AI_TYPE=$(echo "$AI_RAW" | jq -r '.type')
-          ORIGIN_ISSUE=$(echo "$AI_RAW" | jq -r '.origin_issue // empty')
-
-          case "$AI_TYPE" in
-            reject)
-              echo "判定为无效Issue，关闭为not_planned"
-              curl -s -X PATCH "$API_URL" \
-                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-                -d '{"state":"closed","state_reason":"not_planned","labels":["拒绝"]}'
-              curl -s -X POST "$API_URL/comments" \
-                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-                -d '{"body":"⚠️ 您的Issue描述过于简略、无有效信息，已自动关闭，请完善问题细节后重新提交。"}'
-              ;;
-            duplicate)
-              echo "判定为重复Issue，关联#$ORIGIN_ISSUE"
-              COMMENT_BODY=$(jq -n --arg o "$ORIGIN_ISSUE" \
-                '{"body":"🔍 此Issue与#\($o)高度重复，已自动关闭，请前往原Issue跟进。"}')
-              curl -s -X PATCH "$API_URL" \
-                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-                -d '{"state":"closed","state_reason":"duplicate","labels":["重复"]}'
-              curl -s -X POST "$API_URL/comments" \
-                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-                -d "$COMMENT_BODY"
-              ;;
-            normal)
-              echo "Issue正常，打上【未验证】标签"
-              curl -s -X PATCH "$API_URL" \
-                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-                -d '{"labels":["未验证"]}'
-              ;;
-            *)
-              echo "AI判断结果异常($AI_TYPE)，跳过处理"
-              exit 0
-              ;;
-          esac
-
-  # Issue手动关闭自动打标签
-  handle-issue-close:
-    if: github.event_name == 'issues' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: 获取GitHub App机器人Token
-        id: generate_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: 根据关闭原因设置Issue标签
-        env:
-          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-          REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          STATE_REASON: ${{ github.event.issue.state_reason }}
+      - name: Handle reject issue
+        if: env.AI_TYPE == 'reject'
         run: |
-          echo "Issue #$ISSUE_NUMBER 关闭原因: $STATE_REASON"
-          API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER"
-          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
-          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"labels":["拒绝"]}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
 
-          case "$STATE_REASON" in
-            completed)
-              LABELS='{"labels":["完成"]}'
-              ;;
-            not_planned)
-              LABELS='{"labels":["拒绝"]}'
-              ;;
-            duplicate)
-              LABELS='{"labels":["重复"]}'
-              ;;
-            *)
-              echo "未匹配关闭原因，跳过标签更新"
-              exit 0
-              ;;
-          esac
+          curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels/未验证
 
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X PATCH \
-            -H "$AUTH_HEADER" \
-            -H "$ACCEPT_HEADER" \
-            "$API_URL" \
-            -d "$LABELS")
+          curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"state":"closed"}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}
 
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✓ 标签更新成功"
-          else
-            echo "✗ 标签更新失败，HTTP码: $HTTP_CODE"
-            exit 1
-          fi
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"body":"⚠️ 您的Issue描述过于简略、无有效内容，已自动关闭，请完善内容后重新提交。"}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/comments
 
-  # PR关闭/合并处理关联Issue标签
-  handle-pr-close:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: 获取GitHub App机器人Token
-        id: generate_token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.APP_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
-      - name: 处理PR关闭/合并事件
-        env:
-          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_MERGED: ${{ github.event.pull_request.merged }}
-          PR_BODY: ${{ github.event.pull_request.body }}
+      - name: Handle duplicate issue
+        if: env.AI_TYPE == 'duplicate'
         run: |
-          echo "PR #$PR_NUMBER 事件: $([ "$PR_MERGED" = "true" ] && echo '已合并' || echo '已关闭（未合并）')"
-          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
-          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
+          ORIGIN=${{ env.ORIGIN_ID }}
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"labels":["重复"]}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels
 
-          # 更新标签通用函数
-          update_labels() {
-            local num=$1
-            local labels_json=$2
-            local api_url="https://api.github.com/repos/$REPO/issues/$num"
-            curl -s -o /dev/null -X PATCH \
-              -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-              "$api_url" -d "$labels_json"
-          }
+          curl -s -X DELETE -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/labels/未验证
 
-          # 提取关联Issue编号
-          extract_linked_issues() {
-            if command -v gh &> /dev/null; then
-              gh pr view "$PR_NUMBER" --repo "$REPO" \
-                --json closingIssuesReferences -q '.closingIssuesReferences[].number' 2>/dev/null || true
-            fi
-            echo "$PR_BODY" | grep -ioE '(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+#([0-9]+)' | grep -oE '[0-9]+' || true
-          }
+          curl -s -X PATCH -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"state":"closed"}' \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}
 
-          LINKED_ISSUES=$(extract_linked_issues | sort -u | uniq)
-
-          if [ "$PR_MERGED" = "true" ]; then
-            echo "PR已合并，为关联Issue打上完成标签"
-            for ISSUE_NUM in $LINKED_ISSUES; do
-              update_labels "$ISSUE_NUM" '{"labels":["完成"]}'
-            done
-          else
-            echo "PR未合并直接关闭，打上拒绝标签"
-            update_labels "$PR_NUMBER" '{"labels":["拒绝"]}'
-          fi
+          curl -s -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\":\"🔍 此Issue与#$ORIGIN高度重复，已自动关闭，请前往原Issue跟进。\"}" \
+            ${{ github.api_url }}/repos/${{ github.repository }}/issues/${{ env.ISSUE_NUMBER }}/comments
