@@ -10,22 +10,19 @@ jobs:
       issues: write
       contents: read
     steps:
-      # ✅ 正确安装 GitHub CLI，不用npm！
-      - name: Setup GitHub CLI
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-      - run: sudo apt update && sudo apt install gh -y
-
       - name: Get issue info
         run: |
           echo "TITLE=${{ github.event.issue.title }}" >> $GITHUB_ENV
           echo "BODY=${{ github.event.issue.body }}" >> $GITHUB_ENV
           echo "ISSUE_NUMBER=${{ github.event.issue.number }}" >> $GITHUB_ENV
 
-      - name: Fetch recent issues
+      - name: Fetch recent issues (REST‑API, no gh cli)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          gh issue list --state open --limit 100 --json number,title,body > filtered_issues.json
+          curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues?state=open&per_page=100" > filtered_issues.json
 
       - name: Call DeepSeek AI judge
         env:
@@ -62,28 +59,64 @@ jobs:
           AI_TYPE=$(jq -r '.type' result.json || echo "normal")
           ORIGIN_ID=$(jq -r '.origin_id' result.json || echo "null")
 
+          # 兜底：duplicate却无编号 → 降级normal
           if [[ "$AI_TYPE" == "duplicate" && "$ORIGIN_ID" == "null" ]]; then
             AI_TYPE="normal"
           fi
 
           echo "AI_TYPE=$AI_TYPE" >> $GITHUB_ENV
           echo "ORIGIN_ID=$ORIGIN_ID" >> $GITHUB_ENV
-          echo "最终判定：$AI_TYPE，重复源编号：$ORIGIN_ID"
 
       - name: Handle normal issue
         if: env.AI_TYPE == 'normal'
-        run: |
-          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "未验证"
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              labels: ["未验证"]
+            })
 
       - name: Handle reject issue
         if: env.AI_TYPE == 'reject'
-        run: |
-          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "垃圾内容"
-          gh issue close ${{ env.ISSUE_NUMBER }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              labels: ["垃圾内容"]
+            })
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              state: 'closed'
+            })
 
       - name: Handle duplicate issue
         if: env.AI_TYPE == 'duplicate'
-        run: |
-          gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "重复"
-          gh issue comment ${{ env.ISSUE_NUMBER }} -b "此issue与#${{ env.ORIGIN_ID }}诉求重复，已关闭"
-          gh issue close ${{ env.ISSUE_NUMBER }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              labels: ["重复"]
+            })
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              body: `此issue与#${{ env.ORIGIN_ID }}诉求重复，已关闭`
+            })
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ env.ISSUE_NUMBER }},
+              state: 'closed'
+            })
