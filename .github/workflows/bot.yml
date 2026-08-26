@@ -1,26 +1,140 @@
-name: Issue-Close-Bot
+name: Issue-Auto-Moderate-Bot
+
 "on":
   issues:
-    types: [closed]
+    types: [opened, closed]
   pull_request:
     types: [closed]
+
 permissions:
   issues: write
   pull-requests: write
   contents: read
+
 jobs:
-  handle-issue-close:
-    if: github.event_name == 'issues'
+  # 新建Issue AI自动审核：查重+内容校验
+  issue-moderate:
+    if: github.event_name == 'issues' && github.event.action == 'opened'
     runs-on: ubuntu-latest
     steps:
-      - name: 获取 GitHub‑App Token（机器人身份）
+      - name: 获取GitHub App机器人Token
         id: generate_token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: 根据关闭原因设置 Issue 标签
+      - name: 拉取历史Issue并调用DeepSeek审核
+        env:
+          GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+          DEEPSEEK_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUM"
+          AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
+          ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
+
+          # 获取最近100条历史Issue摘要（只保留编号和标题，精简token）
+          ALL_ISSUES_SUMMARY=$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+            "https://api.github.com/repos/$REPO/issues?state=all&per_page=100" | \
+            jq -c 'map({number, title})')
+          # 防御空结果，确保 --argjson 不会报错
+          ALL_ISSUES_SUMMARY=${ALL_ISSUES_SUMMARY:-"[]"}
+          echo "$ALL_ISSUES_SUMMARY" | jq . >/dev/null 2>&1 || ALL_ISSUES_SUMMARY="[]"
+
+          echo "=== 开始DeepSeek审核 ==="
+
+          # 用 jq 构造完整请求体，杜绝 JSON 引号冲突
+          PAYLOAD=$(jq -n \
+            --arg title "$ISSUE_TITLE" \
+            --arg body "$ISSUE_BODY" \
+            --argjson issues "$ALL_ISSUES_SUMMARY" \
+            '{
+              model: "deepseek-chat",
+              temperature: 0.1,
+              stream: false,
+              messages: [
+                {
+                  role: "system",
+                  content: "你是严格的仓库Issue审核机器人，只输出纯JSON，无任何多余文字。规则：1. Issue标题/内容无有效信息、灌水、乱码、描述模糊 → {\"type\":\"reject\"}；2. 和历史Issue高度重复 → {\"type\":\"duplicate\",\"origin_issue\":原issue数字编号}；3. 正常有效Issue → {\"type\":\"normal\"}。"
+                },
+                {
+                  role: "user",
+                  content: ("当前Issue标题：" + $title + "，内容：" + $body + "；历史Issue列表：" + ($issues|tostring))
+                }
+              ]
+            }')
+
+          DEEPSEEK_RESP=$(curl -s -X POST "https://api.deepseek.com/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $DEEPSEEK_KEY" \
+            -d "$PAYLOAD")
+
+          # 解析AI结果，容错处理
+          AI_RAW=$(echo "$DEEPSEEK_RESP" | jq -r '.choices[0].message.content' 2>/dev/null || true)
+          if [[ -z "$AI_RAW" ]]; then
+            echo "DeepSeek调用失败或无响应，跳过自动审核"
+            exit 0
+          fi
+
+          # 校验返回是否合法JSON
+          echo "$AI_RAW" | jq . >/dev/null 2>&1 || {
+            echo "AI返回格式非法，跳过处理"
+            exit 0
+          }
+
+          AI_TYPE=$(echo "$AI_RAW" | jq -r '.type')
+          ORIGIN_ISSUE=$(echo "$AI_RAW" | jq -r '.origin_issue // empty')
+
+          case "$AI_TYPE" in
+            reject)
+              echo "判定为无效Issue，关闭为not_planned"
+              curl -s -X PATCH "$API_URL" \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                -d '{"state":"closed","state_reason":"not_planned","labels":["拒绝"]}'
+              curl -s -X POST "$API_URL/comments" \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                -d '{"body":"⚠️ 您的Issue描述过于简略、无有效信息，已自动关闭，请完善问题细节后重新提交。"}'
+              ;;
+            duplicate)
+              echo "判定为重复Issue，关联#$ORIGIN_ISSUE"
+              COMMENT_BODY=$(jq -n --arg o "$ORIGIN_ISSUE" \
+                '{"body":"🔍 此Issue与#\($o)高度重复，已自动关闭，请前往原Issue跟进。"}')
+              curl -s -X PATCH "$API_URL" \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                -d '{"state":"closed","state_reason":"duplicate","labels":["重复"]}'
+              curl -s -X POST "$API_URL/comments" \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                -d "$COMMENT_BODY"
+              ;;
+            normal)
+              echo "Issue正常，打上【未验证】标签"
+              curl -s -X PATCH "$API_URL" \
+                -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+                -d '{"labels":["未验证"]}'
+              ;;
+            *)
+              echo "AI判断结果异常($AI_TYPE)，跳过处理"
+              exit 0
+              ;;
+          esac
+
+  # Issue手动关闭自动打标签
+  handle-issue-close:
+    if: github.event_name == 'issues' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取GitHub App机器人Token
+        id: generate_token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: 根据关闭原因设置Issue标签
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
           REPO: ${{ github.repository }}
@@ -31,51 +145,50 @@ jobs:
           API_URL="https://api.github.com/repos/$REPO/issues/$ISSUE_NUMBER"
           AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
           ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
-          # 根据 state_reason 决定要设置的标签
+
           case "$STATE_REASON" in
-            "completed")
+            completed)
               LABELS='{"labels":["完成"]}'
-              echo "→ 设置为: 完成"
               ;;
-            "not_planned")
+            not_planned)
               LABELS='{"labels":["拒绝"]}'
-              echo "→ 设置为: 拒绝"
               ;;
-            "duplicate")
+            duplicate)
               LABELS='{"labels":["重复"]}'
-              echo "→ 设置为: 重复"
               ;;
             *)
-              echo "→ 未处理的关闭原因: $STATE_REASON，跳过"
+              echo "未匹配关闭原因，跳过标签更新"
               exit 0
               ;;
           esac
-          # 直接覆盖所有标签为新标签（等效于清空后添加）
+
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -X PATCH \
             -H "$AUTH_HEADER" \
             -H "$ACCEPT_HEADER" \
             "$API_URL" \
             -d "$LABELS")
+
           if [ "$HTTP_CODE" = "200" ]; then
             echo "✓ 标签更新成功"
           else
-            echo "✗ 标签更新失败，HTTP 状态码: $HTTP_CODE"
+            echo "✗ 标签更新失败，HTTP码: $HTTP_CODE"
             exit 1
           fi
 
+  # PR关闭/合并处理关联Issue标签
   handle-pr-close:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     steps:
-      - name: 获取 GitHub‑App Token（机器人身份）
+      - name: 获取GitHub App机器人Token
         id: generate_token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
-      - name: 处理 PR 关闭/合并事件
+      - name: 处理PR关闭/合并事件
         env:
           GH_TOKEN: ${{ steps.generate_token.outputs.token }}
           REPO: ${{ github.repository }}
@@ -86,66 +199,34 @@ jobs:
           echo "PR #$PR_NUMBER 事件: $([ "$PR_MERGED" = "true" ] && echo '已合并' || echo '已关闭（未合并）')"
           AUTH_HEADER="Authorization: Bearer $GH_TOKEN"
           ACCEPT_HEADER="Accept: application/vnd.github.v3+json"
-          # ---------- 通用函数：更新 Issue/PR 标签 ----------
+
+          # 更新标签通用函数
           update_labels() {
             local num=$1
             local labels_json=$2
-            local label_desc=$3
-            local kind=$4   # "Issue" or "PR"
             local api_url="https://api.github.com/repos/$REPO/issues/$num"
-            echo "  · 处理 $kind #$num → 设置标签: $label_desc"
-            local http_code=$(curl -s -o /dev/null -w "%{http_code}" \
-              -X PATCH \
-              -H "$AUTH_HEADER" \
-              -H "$ACCEPT_HEADER" \
-              "$api_url" \
-              -d "$labels_json")
-            if [ "$http_code" = "200" ]; then
-              echo "    ✓ 成功"
-            else
-              echo "    ✗ 失败 (HTTP $http_code)"
-            fi
+            curl -s -o /dev/null -X PATCH \
+              -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+              "$api_url" -d "$labels_json"
           }
-          # ---------- 从 PR body 中解析关联的 Issue 编号 ----------
+
+          # 提取关联Issue编号
           extract_linked_issues() {
-            # 优先使用 GitHub CLI（如已安装）
             if command -v gh &> /dev/null; then
               gh pr view "$PR_NUMBER" --repo "$REPO" \
-                --json closingIssuesReferences \
-                -q '.closingIssuesReferences[].number' 2>/dev/null || true
+                --json closingIssuesReferences -q '.closingIssuesReferences[].number' 2>/dev/null || true
             fi
-            # 兜底：通过 REST API 获取 timeline 中的 "closed as completed" 事件
-            local api_url="https://api.github.com/repos/$REPO/issues/$PR_NUMBER/timeline?per_page=100"
-            local api_result
-            api_result=$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" "$api_url" 2>/dev/null || true)
-            if command -v jq &> /dev/null && [ -n "$api_result" ]; then
-              echo "$api_result" | jq -r '.[] | select(.event == "cross-referenced") | .source.issue.number' 2>/dev/null || true
-            fi
-            # 最后兜底：正则匹配 PR_BODY 中的 Closes/Fixes/Resolves #123 等关键词
-            local patterns="(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+#([0-9]+)"
-            echo "$PR_BODY" | grep -ioE "$patterns" | grep -oE '[0-9]+' || true
+            echo "$PR_BODY" | grep -ioE '(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)[[:space:]]+#([0-9]+)' | grep -oE '[0-9]+' || true
           }
-          # ==================================================
-          # 分支 1: PR 被合并 → 处理关联 Issue（清空+打"完成"）
-          # ==================================================
+
+          LINKED_ISSUES=$(extract_linked_issues | sort -u | uniq)
+
           if [ "$PR_MERGED" = "true" ]; then
-            echo ""
-            echo "====== PR 已合并，处理关联 Issue ======"
-            LINKED_ISSUES=$(extract_linked_issues | sort -u | uniq)
-            if [ -z "$LINKED_ISSUES" ]; then
-              echo "→ 未在 PR #$PR_NUMBER 中找到关联的 Issue"
-            else
-              echo "→ 找到关联 Issues: $(echo "$LINKED_ISSUES" | tr '\n' ' ')"
-              for ISSUE_NUM in $LINKED_ISSUES; do
-                # 设置标签（直接覆盖 = 清空原有标签 + 添加新标签）
-                update_labels "$ISSUE_NUM" '{"labels":["完成"]}' "完成" "Issue"
-              done
-            fi
-          # ==================================================
-          # 分支 2: PR 被关闭（未合并）→ 清空+给 PR 打"拒绝"
-          # ==================================================
+            echo "PR已合并，为关联Issue打上完成标签"
+            for ISSUE_NUM in $LINKED_ISSUES; do
+              update_labels "$ISSUE_NUM" '{"labels":["完成"]}'
+            done
           else
-            echo ""
-            echo "====== PR 已关闭（未合并），给 PR 打拒绝标签 ======"
-            update_labels "$PR_NUMBER" '{"labels":["拒绝"]}' "拒绝" "PR"
+            echo "PR未合并直接关闭，打上拒绝标签"
+            update_labels "$PR_NUMBER" '{"labels":["拒绝"]}'
           fi
