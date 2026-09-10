@@ -6,9 +6,9 @@ namespace wpfhw
     {
         protected override void OnStartup(StartupEventArgs e)
         {
+            AppStorage.Initialize();
             base.OnStartup(e);
 
-            // 显示启动画面
             var splash = new SplashScreen();
             splash.Show();
         }
