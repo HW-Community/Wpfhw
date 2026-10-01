@@ -32,6 +32,7 @@ public partial class MainWindow : Window
     };
 
     private readonly HttpClient _httpClient;
+    private readonly AppSettings _settings;
     private ModSearchHit? _selectedMod;
     private List<ModVersion> _currentVersions = new();
     private string _currentGameVer = "";
@@ -54,6 +55,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ModTranslation> _pendingByEnglish = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> LoaderTypes = new() { "mod", "modpack" };
+    private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack" };
 
     public MainWindow()
     {
@@ -64,20 +66,78 @@ public partial class MainWindow : Window
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
             "ModDownloader/1.0 (haodi0302@qq.com; Windows)");
 
-        _currentProjectType = "mod";
-        _downloadPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        _settings = AppSettings.Load();
+        _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
+            ? _settings.LastProjectType
+            : "mod";
+        _downloadPath = !string.IsNullOrWhiteSpace(_settings.DownloadPath) && Directory.Exists(_settings.DownloadPath)
+            ? _settings.DownloadPath
+            : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
-        UpdateNavStyle(navMod);
+        if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
+        if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
+
+        UpdateNavStyle(GetNavButton(_currentProjectType));
         UpdateLoaderVisibility();
+        UpdateSearchPlaceholder();
+        SaveSettings();
 
-        this.Closed += (s, e) =>
+        Closed += (_, _) =>
         {
+            SaveSettings();
             _downloadCts?.Cancel();
             _downloadCts?.Dispose();
             _searchCts?.Cancel();
             _searchCts?.Dispose();
             _httpClient.Dispose();
         };
+    }
+
+    private Button GetNavButton(string projectType) => projectType switch
+    {
+        "resourcepack" => navResource,
+        "shader" => navShader,
+        "datapack" => navData,
+        "modpack" => navPack,
+        _ => navMod
+    };
+
+    private void SaveSettings()
+    {
+        _settings.DownloadPath = _downloadPath;
+        _settings.LastProjectType = _currentProjectType;
+        _settings.WindowWidth = Width;
+        _settings.WindowHeight = Height;
+        _settings.Save();
+    }
+
+    private string ResolveIconUrl(string url)
+    {
+        if (!IconCache.IsRemoteUrl(url)) return url;
+
+        string? local = IconCache.TryGetLocalPath(url);
+        if (local != null)
+            return new Uri(local).AbsoluteUri;
+
+        _ = CacheIconInBackground(url);
+        return url;
+    }
+
+    private async Task CacheIconInBackground(string url)
+    {
+        try
+        {
+            await IconCache.GetLocalPathAsync(url, _httpClient, CancellationToken.None);
+        }
+        catch
+        {
+        }
+    }
+
+    private ModSearchHit WithCachedIcon(ModSearchHit hit)
+    {
+        hit.IconUrl = ResolveIconUrl(hit.IconUrl);
+        return hit;
     }
 
     private bool HasLoaders() => LoaderTypes.Contains(_currentProjectType);
@@ -312,7 +372,7 @@ public partial class MainWindow : Window
                             MatchEnglishName = mc.EnglishName
                         };
 
-                        lstModResult.Items.Add(ApplyTranslation(hit));
+                        lstModResult.Items.Add(WithCachedIcon(ApplyTranslation(hit)));
                         _totalHits++;
                     }
                 }
@@ -381,7 +441,7 @@ public partial class MainWindow : Window
                 foreach (var m in searchResult.Hits)
                 {
                     TryMatchPendingByEnglish(m);
-                    lstModResult.Items.Add(ApplyTranslation(m));
+                    lstModResult.Items.Add(WithCachedIcon(ApplyTranslation(m)));
                 }
                 txtStatusMsg.Text = $"找到 {_totalHits} 个结果，第 {_currentOffset / PageSize + 1} 页（中译仅在通过MC百科路径搜索时应用）";
             }
@@ -710,6 +770,7 @@ public partial class MainWindow : Window
         {
             _downloadPath = dialog.FolderName;
             txtDownloadPath.Text = _downloadPath;
+            SaveSettings();
         }
     }
 
