@@ -45,9 +45,9 @@ public static class ThemeManager
     };
 
     /// <summary>应用指定主题模式。</summary>
-    public static void ApplyTheme(ThemeMode mode)
+    public static void ApplyTheme(AppThemeMode mode)
     {
-        bool isDark = mode == ThemeMode.Dark || (mode == ThemeMode.System && IsSystemDark());
+        bool isDark = mode == AppThemeMode.Dark || (mode == AppThemeMode.System && IsSystemDark());
         Apply(isDark);
     }
 

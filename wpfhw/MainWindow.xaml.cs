@@ -134,11 +134,11 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
-    private ThemeMode _currentThemeMode = ThemeMode.System;
+    private AppThemeMode _currentThemeMode = AppThemeMode.System;
     private int _maxDownloadThreads = 3;
 
     /// <summary>应用主题并高亮对应按钮。</summary>
-    private void ApplyTheme(ThemeMode mode)
+    private void ApplyTheme(AppThemeMode mode)
     {
         _currentThemeMode = mode;
         ThemeManager.ApplyTheme(mode);
@@ -156,8 +156,8 @@ public partial class MainWindow : Window
 
         Button active = _currentThemeMode switch
         {
-            ThemeMode.Light => btnThemeLight,
-            ThemeMode.Dark => btnThemeDark,
+            AppThemeMode.Light => btnThemeLight,
+            AppThemeMode.Dark => btnThemeDark,
             _ => btnThemeSystem
         };
         active.SetResourceReference(Control.BackgroundProperty, "ThemeAccent");
@@ -313,11 +313,11 @@ public partial class MainWindow : Window
     private void ThemeButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn) return;
-        ThemeMode mode = btn.Tag?.ToString() switch
+        AppThemeMode mode = btn.Tag?.ToString() switch
         {
-            "Light" => ThemeMode.Light,
-            "Dark" => ThemeMode.Dark,
-            _ => ThemeMode.System
+            "Light" => AppThemeMode.Light,
+            "Dark" => AppThemeMode.Dark,
+            _ => AppThemeMode.System
         };
         ApplyTheme(mode);
         SaveSettings();

@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 namespace wpfhw;
 
 /// <summary>主题模式：浅色 / 深色 / 跟随系统</summary>
-public enum ThemeMode
+public enum AppThemeMode
 {
     Light,
     Dark,
@@ -32,7 +32,7 @@ public class AppSettings
     public double WindowHeight { get; set; } = 720;
 
     /// <summary>主题模式，默认跟随系统</summary>
-    public ThemeMode ThemeMode { get; set; } = ThemeMode.System;
+    public AppThemeMode ThemeMode { get; set; } = AppThemeMode.System;
 
     /// <summary>最大并发下载线程数（1-16），默认 3</summary>
     public int MaxDownloadThreads { get; set; } = 3;
