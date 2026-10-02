@@ -16,4 +16,4 @@ Thumbs.db
 .DS_Store
 
 # 运行时数据（设置、图片缓存）
-.wpfhw/
+.wpfhw/.uploads/
