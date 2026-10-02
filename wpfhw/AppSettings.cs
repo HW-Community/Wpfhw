@@ -4,6 +4,14 @@ using System.Text.Json.Serialization;
 
 namespace wpfhw;
 
+/// <summary>主题模式：浅色 / 深色 / 跟随系统</summary>
+public enum ThemeMode
+{
+    Light,
+    Dark,
+    System
+}
+
 public class AppSettings
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -13,10 +21,21 @@ public class AppSettings
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
+    static AppSettings()
+    {
+        JsonOptions.Converters.Add(new JsonStringEnumConverter());
+    }
+
     public string DownloadPath { get; set; } = "";
     public string LastProjectType { get; set; } = "mod";
     public double WindowWidth { get; set; } = 1080;
     public double WindowHeight { get; set; } = 720;
+
+    /// <summary>主题模式，默认跟随系统</summary>
+    public ThemeMode ThemeMode { get; set; } = ThemeMode.System;
+
+    /// <summary>最大并发下载线程数（1-16），默认 3</summary>
+    public int MaxDownloadThreads { get; set; } = 3;
 
     public static AppSettings Load()
     {
@@ -28,7 +47,11 @@ public class AppSettings
             {
                 string json = File.ReadAllText(AppStorage.SettingsFile);
                 var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-                if (loaded != null) return loaded;
+                if (loaded != null)
+                {
+                    loaded.MaxDownloadThreads = Math.Clamp(loaded.MaxDownloadThreads, 1, 16);
+                    return loaded;
+                }
             }
         }
         catch

@@ -3,6 +3,8 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -48,6 +50,17 @@ public partial class MainWindow : Window
     private string _lastKeyword = "";
     private int _totalHits = 0;
 
+    // 下载并发管理
+    private SemaphoreSlim _downloadSemaphore = null!;
+    private int _activeDownloadCount;
+    private readonly object _panelLock = new();
+    private int _panelOwnerId = -1;       // 当前占用下载面板的下载任务 id，-1 表示空闲
+    private int _downloadIdCounter;
+
+    // 设置面板返回时要回到的面板
+    private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading }
+    private MainPanel _lastPanel = MainPanel.Search;
+
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
 
@@ -77,10 +90,18 @@ public partial class MainWindow : Window
         if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
         if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
 
+        // 下载并发信号量（不设上限，运行时通过 Release/Wait 动态调整）
+        _maxDownloadThreads = _settings.MaxDownloadThreads;
+        _downloadSemaphore = new SemaphoreSlim(_maxDownloadThreads);
+        txtThreadCount.Text = _maxDownloadThreads.ToString();
+
         UpdateNavStyle(GetNavButton(_currentProjectType));
         UpdateLoaderVisibility();
         UpdateSearchPlaceholder();
+        ApplyTheme(_settings.ThemeMode);
         SaveSettings();
+
+        _downloadCts = new CancellationTokenSource();
 
         Closed += (_, _) =>
         {
@@ -108,7 +129,71 @@ public partial class MainWindow : Window
         _settings.LastProjectType = _currentProjectType;
         _settings.WindowWidth = Width;
         _settings.WindowHeight = Height;
+        _settings.ThemeMode = _currentThemeMode;
+        _settings.MaxDownloadThreads = _maxDownloadThreads;
         _settings.Save();
+    }
+
+    private ThemeMode _currentThemeMode = ThemeMode.System;
+    private int _maxDownloadThreads = 3;
+
+    /// <summary>应用主题并高亮对应按钮。</summary>
+    private void ApplyTheme(ThemeMode mode)
+    {
+        _currentThemeMode = mode;
+        ThemeManager.ApplyTheme(mode);
+        UpdateThemeButtons();
+    }
+
+    private void UpdateThemeButtons()
+    {
+        foreach (var btn in new[] { btnThemeLight, btnThemeDark, btnThemeSystem })
+        {
+            btn.SetResourceReference(Control.BackgroundProperty, "ThemeCardBackground");
+            btn.SetResourceReference(Control.ForegroundProperty, "ThemePrimaryText");
+            btn.FontWeight = FontWeights.Normal;
+        }
+
+        Button active = _currentThemeMode switch
+        {
+            ThemeMode.Light => btnThemeLight,
+            ThemeMode.Dark => btnThemeDark,
+            _ => btnThemeSystem
+        };
+        active.SetResourceReference(Control.BackgroundProperty, "ThemeAccent");
+        active.Foreground = Brushes.White;
+        active.FontWeight = FontWeights.SemiBold;
+    }
+
+    /// <summary>动态调整下载并发数。</summary>
+    private void UpdateMaxDownloadThreads(int newValue)
+    {
+        newValue = Math.Clamp(newValue, 1, 16);
+        if (newValue == _maxDownloadThreads) return;
+
+        int old = _maxDownloadThreads;
+        _maxDownloadThreads = newValue;
+        txtThreadCount.Text = newValue.ToString();
+
+        int diff = newValue - old;
+        if (diff > 0)
+        {
+            // 增加并发：释放对应数量的槽位
+            try { _downloadSemaphore.Release(diff); }
+            catch (SemaphoreFullException) { }
+        }
+        else if (diff < 0)
+        {
+            // 减少并发：后台逐步回收多余槽位（不阻塞 UI，等进行中的下载自然结束）
+            int toRemove = -diff;
+            _ = Task.Run(async () =>
+            {
+                for (int i = 0; i < toRemove; i++)
+                    await _downloadSemaphore.WaitAsync();
+            });
+        }
+
+        SaveSettings();
     }
 
     private string ResolveIconUrl(string url)
@@ -186,6 +271,81 @@ public partial class MainWindow : Window
 
     #endregion
 
+    #region ========== 设置面板 ==========
+
+    private void BtnSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // 记录当前面板，便于返回
+        if (panelVersionDetail.Visibility == Visibility.Visible) _lastPanel = MainPanel.VersionDetail;
+        else if (panelDownloadConfirm.Visibility == Visibility.Visible) _lastPanel = MainPanel.DownloadConfirm;
+        else if (panelDownloading.Visibility == Visibility.Visible) _lastPanel = MainPanel.Downloading;
+        else _lastPanel = MainPanel.Search;
+
+        panelSearch.Visibility = Visibility.Collapsed;
+        panelVersionDetail.Visibility = Visibility.Collapsed;
+        panelDownloadConfirm.Visibility = Visibility.Collapsed;
+        panelDownloading.Visibility = Visibility.Collapsed;
+        panelSettings.Visibility = Visibility.Visible;
+
+        UpdateThemeButtons();
+    }
+
+    private void BtnBackFromSettings_Click(object sender, RoutedEventArgs e)
+    {
+        panelSettings.Visibility = Visibility.Collapsed;
+        switch (_lastPanel)
+        {
+            case MainPanel.VersionDetail:
+                panelVersionDetail.Visibility = Visibility.Visible;
+                break;
+            case MainPanel.DownloadConfirm:
+                panelDownloadConfirm.Visibility = Visibility.Visible;
+                break;
+            case MainPanel.Downloading:
+                panelDownloading.Visibility = Visibility.Visible;
+                break;
+            default:
+                panelSearch.Visibility = Visibility.Visible;
+                break;
+        }
+    }
+
+    private void ThemeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        ThemeMode mode = btn.Tag?.ToString() switch
+        {
+            "Light" => ThemeMode.Light,
+            "Dark" => ThemeMode.Dark,
+            _ => ThemeMode.System
+        };
+        ApplyTheme(mode);
+        SaveSettings();
+    }
+
+    private void BtnThreadMinus_Click(object sender, RoutedEventArgs e)
+        => UpdateMaxDownloadThreads(_maxDownloadThreads - 1);
+
+    private void BtnThreadPlus_Click(object sender, RoutedEventArgs e)
+        => UpdateMaxDownloadThreads(_maxDownloadThreads + 1);
+
+    private void BtnGithub_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "https://github.com/HW-Community/Wpfhw",
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+        }
+    }
+
+    #endregion
+
     #region ========== 导航栏 ==========
 
     private void Nav_Click(object sender, RoutedEventArgs e)
@@ -213,15 +373,15 @@ public partial class MainWindow : Window
         {
             if (child is Button btn)
             {
-                btn.Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102));
+                btn.SetResourceReference(Control.ForegroundProperty, "ThemeSecondaryText");
                 btn.FontWeight = FontWeights.Normal;
                 btn.Background = Brushes.Transparent;
             }
         }
 
-        active.Foreground = new SolidColorBrush(Color.FromRgb(0, 122, 255));
+        active.SetResourceReference(Control.ForegroundProperty, "ThemeAccent");
         active.FontWeight = FontWeights.SemiBold;
-        active.Background = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+        active.SetResourceReference(Control.BackgroundProperty, "ThemeWindowBackground");
     }
 
     #endregion
@@ -676,7 +836,7 @@ public partial class MainWindow : Window
 
         if (isActive)
         {
-            btn.Background = new SolidColorBrush(Color.FromRgb(0, 122, 255));
+            btn.SetResourceReference(Control.BackgroundProperty, "ThemeAccent");
             btn.Foreground = Brushes.White;
             btn.FontWeight = FontWeights.SemiBold;
         }
@@ -774,28 +934,71 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void BtnStartDownload_Click(object sender, RoutedEventArgs e)
+    private void BtnStartDownload_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingDownloadFile == null) return;
 
-        _downloadCts?.Cancel();
-        _downloadCts?.Dispose();
-        _downloadCts = new CancellationTokenSource();
-        var ct = _downloadCts.Token;
+        var file = _pendingDownloadFile;
+        string saveDir = _downloadPath;
+        int downloadId = Interlocked.Increment(ref _downloadIdCounter);
 
+        // 立即返回版本详情，允许用户继续排队下载
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Visible;
+        panelVersionDetail.Visibility = Visibility.Visible;
+        _pendingDownloadFile = null;
+        _pendingVersion = null;
 
-        string fullSavePath = Path.Combine(_downloadPath, _pendingDownloadFile.FileName);
-        txtDownloadingFile.Text = _pendingDownloadFile.FileName;
+        txtStatusMsg.Text = $"已加入下载队列：{file.FileName}";
 
-        progressBarFill.Width = 0;
-        txtDownloadPercent.Text = "0%";
+        // 启动并发下载任务（受信号量限制）
+        _ = Task.Run(() => RunDownloadAsync(downloadId, file, saveDir, _downloadCts!.Token));
+    }
 
+    private async Task RunDownloadAsync(int downloadId, ModFile file,
+        string saveDir, CancellationToken ct)
+    {
+        bool ownsPanel = false;
+        bool semaphoreAcquired = false;
         try
         {
+            await _downloadSemaphore.WaitAsync(ct);
+            semaphoreAcquired = true;
+            Interlocked.Increment(ref _activeDownloadCount);
+
+            // 尝试占用下载进度面板
+            lock (_panelLock)
+            {
+                if (_panelOwnerId == -1)
+                {
+                    _panelOwnerId = downloadId;
+                    ownsPanel = true;
+                }
+            }
+
+            string fullSavePath = Path.Combine(saveDir, file.FileName);
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ownsPanel)
+                {
+                    panelVersionDetail.Visibility = Visibility.Collapsed;
+                    panelSearch.Visibility = Visibility.Collapsed;
+                    panelDownloadConfirm.Visibility = Visibility.Collapsed;
+                    panelSettings.Visibility = Visibility.Collapsed;
+                    panelDownloading.Visibility = Visibility.Visible;
+
+                    txtDownloadingFile.Text = file.FileName;
+                    progressBarFill.Width = 0;
+                    txtDownloadPercent.Text = "0%";
+                }
+                else
+                {
+                    txtStatusMsg.Text = $"正在后台下载：{file.FileName}（并发 {_activeDownloadCount}）";
+                }
+            });
+
             using var response = await _httpClient.GetAsync(
-                _pendingDownloadFile.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+                file.Url, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
             long totalBytes = response.Content.Headers.ContentLength ?? -1;
@@ -812,31 +1015,49 @@ public partial class MainWindow : Window
                 await streamLocal.WriteAsync(buffer.AsMemory(0, readCount), ct);
                 receivedBytes += readCount;
 
-                if (totalBytes > 0)
+                if (ownsPanel && totalBytes > 0)
                 {
                     double percent = receivedBytes * 100.0 / totalBytes;
-                    UpdateProgressBar(percent);
-                    txtDownloadPercent.Text = $"{percent:F1}%";
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        UpdateProgressBar(percent);
+                        txtDownloadPercent.Text = $"{percent:F1}%";
+                    });
                 }
             }
 
-            txtDownloadingFile.Text = $"下载完成！{_pendingDownloadFile.FileName}";
-            txtDownloadPercent.Text = "100%";
-            UpdateProgressBar(100);
-
-            await Task.Delay(3000, ct);
-
-            if (!ct.IsCancellationRequested)
+            await Dispatcher.InvokeAsync(() =>
             {
-                panelDownloading.Visibility = Visibility.Collapsed;
-                panelVersionDetail.Visibility = Visibility.Visible;
-            }
+                if (ownsPanel)
+                {
+                    txtDownloadingFile.Text = $"下载完成！{file.FileName}";
+                    txtDownloadPercent.Text = "100%";
+                    UpdateProgressBar(100);
+                }
+                else
+                {
+                    txtStatusMsg.Text = $"下载完成：{file.FileName}";
+                }
+            });
+
+            await Task.Delay(ownsPanel ? 1500 : 0, ct);
         }
         catch (OperationCanceledException)
         {
-            txtDownloadingFile.Text = "下载已取消";
-            txtDownloadPercent.Text = "";
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ownsPanel)
+                {
+                    txtDownloadingFile.Text = "下载已取消";
+                    txtDownloadPercent.Text = "";
+                }
+                else
+                {
+                    txtStatusMsg.Text = $"下载已取消：{file.FileName}";
+                }
+            });
 
+            string fullSavePath = Path.Combine(saveDir, file.FileName);
             if (File.Exists(fullSavePath))
             {
                 try { File.Delete(fullSavePath); } catch { }
@@ -844,8 +1065,43 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            txtDownloadingFile.Text = $"下载失败：{ex.Message}";
-            txtDownloadPercent.Text = "";
+            await Dispatcher.InvokeAsync(() =>
+            {
+                if (ownsPanel)
+                {
+                    txtDownloadingFile.Text = $"下载失败：{ex.Message}";
+                    txtDownloadPercent.Text = "";
+                }
+                else
+                {
+                    txtStatusMsg.Text = $"下载失败：{file.FileName} - {ex.Message}";
+                }
+            });
+        }
+        finally
+        {
+            if (semaphoreAcquired)
+            {
+                Interlocked.Decrement(ref _activeDownloadCount);
+                _downloadSemaphore.Release();
+            }
+
+            if (ownsPanel)
+            {
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    lock (_panelLock)
+                    {
+                        _panelOwnerId = -1;
+                    }
+
+                    if (panelSettings.Visibility != Visibility.Visible)
+                    {
+                        panelDownloading.Visibility = Visibility.Collapsed;
+                        panelVersionDetail.Visibility = Visibility.Visible;
+                    }
+                });
+            }
         }
     }
 

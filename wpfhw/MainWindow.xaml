@@ -16,7 +16,7 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
 
         <Style x:Key="PrimaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#007aff"/>
+            <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
             <Setter Property="Foreground" Value="#ffffff"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="16 10"/>
@@ -33,10 +33,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#3395ff"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#0056b3"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentPressed}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -45,8 +45,8 @@
         </Style>
 
         <Style x:Key="SecondaryButton" TargetType="Button">
-            <Setter Property="Background" Value="#f2f2f7"/>
-            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Background" Value="{DynamicResource ThemeCardBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="16 10"/>
             <Setter Property="FontSize" Value="13"/>
@@ -62,10 +62,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#e5e5ea"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#d1d1d6"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardPressed}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -78,15 +78,15 @@
         </Style>
 
         <Style x:Key="ModernTextBox" TargetType="TextBox">
-            <Setter Property="Background" Value="#ffffff"/>
-            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Background" Value="{DynamicResource ThemeInputBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="12 0"/>
             <Setter Property="FontSize" Value="16"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="CaretBrush" Value="#007aff"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource ThemeAccent}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
@@ -103,7 +103,7 @@
                             <!-- Placeholder -->
                             <TextBlock x:Name="placeholder"
                                        Text="{TemplateBinding Tag}"
-                                       Foreground="#999999"
+                                       Foreground="{DynamicResource ThemeTertiaryText}"
                                        FontSize="{TemplateBinding FontSize}"
                                        FontWeight="{TemplateBinding FontWeight}"
                                        VerticalAlignment="Center"
@@ -123,7 +123,7 @@
                         </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#f5f5f5"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeInputFocusBackground}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -132,9 +132,9 @@
         </Style>
 
         <Style x:Key="ModernComboBox" TargetType="ComboBox">
-            <Setter Property="Background" Value="#ffffff"/>
-            <Setter Property="Foreground" Value="#333333"/>
-            <Setter Property="BorderBrush" Value="#ffffff"/>
+            <Setter Property="Background" Value="{DynamicResource ThemeInputBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeInputBackground}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="10 0"/>
             <Setter Property="FontSize" Value="14"/>
@@ -171,6 +171,7 @@
                             <!-- 可编辑文本框 -->
                             <TextBox x:Name="PART_EditableTextBox"
                                      Background="Transparent"
+                                     Foreground="{DynamicResource ThemePrimaryText}"
                                      BorderThickness="0"
                                      Margin="12 0 30 0"
                                      VerticalAlignment="Center"
@@ -180,7 +181,7 @@
                             <!-- 下拉箭头 -->
                             <Path x:Name="arrow"
                                   Data="M 0 0 L 4 4 L 8 0"
-                                  Stroke="#999999"
+                                  Stroke="{DynamicResource ThemeTertiaryText}"
                                   StrokeThickness="1.5"
                                   HorizontalAlignment="Right"
                                   VerticalAlignment="Center"
@@ -195,8 +196,8 @@
                                    Focusable="False"
                                    PopupAnimation="Slide"
                                    StaysOpen="False">
-                                <Border Background="#ffffff"
-                                        BorderBrush="#e5e5ea"
+                                <Border Background="{DynamicResource ThemeWindowBackground}"
+                                        BorderBrush="{DynamicResource ThemeCardAltBackground}"
                                         BorderThickness="1"
                                         CornerRadius="12"
                                         MinWidth="{TemplateBinding ActualWidth}"
@@ -234,7 +235,7 @@
         <Style TargetType="ComboBoxItem">
             <Setter Property="Padding" Value="12 8"/>
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -247,10 +248,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#f2f2f7"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeItemHover}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#e5e5ea"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeItemSelected}"/>
                                 <Setter TargetName="border" Property="TextElement.FontWeight" Value="SemiBold"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -261,7 +262,7 @@
 
         <Style x:Key="ModListItem" TargetType="ListBoxItem">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#333333"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
             <Setter Property="Padding" Value="0"/>
             <Setter Property="Margin" Value="0 2"/>
             <Setter Property="Template">
@@ -276,10 +277,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#f2f2f7"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeItemHover}"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#e5e5ea"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeItemSelected}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -288,8 +289,8 @@
         </Style>
 
         <Style x:Key="VersionTag" TargetType="Button">
-            <Setter Property="Background" Value="#f2f2f7"/>
-            <Setter Property="Foreground" Value="#666666"/>
+            <Setter Property="Background" Value="{DynamicResource ThemeCardBackground}"/>
+            <Setter Property="Foreground" Value="{DynamicResource ThemeSecondaryText}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="12 6"/>
             <Setter Property="FontSize" Value="12"/>
@@ -304,19 +305,26 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#e5e5ea"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#d1d1d6"/>
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardPressed}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <!-- 设置页中的主题切换分段按钮 -->
+        <Style x:Key="ThemeSegmentButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Padding" Value="20 10"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0 0 8 0"/>
+        </Style>
     </Window.Resources>
 
-    <Border Background="#ffffff" CornerRadius="20" Margin="10">
+    <Border Background="{DynamicResource ThemeWindowBackground}" CornerRadius="20" Margin="10">
         <Border.Effect>
             <DropShadowEffect ShadowDepth="0" BlurRadius="30" Opacity="0.15" Color="#000000"/>
         </Border.Effect>
@@ -349,7 +357,7 @@
                                 </Style>
                             </Image.Style>
                         </Image>
-                        <TextBlock Text="MD" FontSize="18" FontWeight="Bold" Foreground="#007aff"
+                        <TextBlock Text="MD" FontSize="18" FontWeight="Bold" Foreground="{DynamicResource ThemeAccent}"
                                    HorizontalAlignment="Center" VerticalAlignment="Center">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
@@ -366,12 +374,12 @@
 
                     <Border Grid.Column="1" 
                             HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Background="#f2f2f7" CornerRadius="25" Padding="4">
-                        <Border Background="#ffffff" CornerRadius="22" Opacity="0.95">
+                            Background="{DynamicResource ThemeCardBackground}" CornerRadius="25" Padding="4">
+                        <Border Background="{DynamicResource ThemeWindowBackground}" CornerRadius="22" Opacity="0.95">
                             <StackPanel x:Name="navPanel" Orientation="Horizontal">
                                 <Button x:Name="navMod" Content="模组" Tag="mod" 
                                         Click="Nav_Click" Style="{StaticResource SecondaryButton}"
-                                        Background="Transparent" Foreground="#007aff" FontWeight="SemiBold"/>
+                                        Background="Transparent" Foreground="{DynamicResource ThemeAccent}" FontWeight="SemiBold"/>
                                 <Button x:Name="navResource" Content="资源包" Tag="resourcepack" 
                                         Click="Nav_Click" Style="{StaticResource SecondaryButton}"
                                         Background="Transparent"/>
@@ -415,7 +423,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <Border Grid.Row="0" Background="#f2f2f7" CornerRadius="16" 
+                    <Border Grid.Row="0" Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" 
                             Padding="16" Margin="0 0 0 16">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <TextBox x:Name="txtSearchKey" Width="300" 
@@ -469,7 +477,7 @@
 
                                     <Border Grid.Column="0" Width="64" Height="64" 
                                             CornerRadius="16" Margin="0 0 16 0"
-                                            Background="#f2f2f7" 
+                                            Background="{DynamicResource ThemeCardBackground}" 
                                             ClipToBounds="True"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center">
@@ -494,7 +502,7 @@
 
                                     <Border Grid.Column="0" Width="64" Height="64" 
                                             CornerRadius="16" Margin="0 0 16 0"
-                                            Background="#e5e5ea"
+                                            Background="{DynamicResource ThemeCardAltBackground}"
                                             HorizontalAlignment="Center"
                                             VerticalAlignment="Center">
                                         <Border.Style>
@@ -513,18 +521,18 @@
                                         <TextBlock Text="?" FontSize="24" 
                                                    HorizontalAlignment="Center" 
                                                    VerticalAlignment="Center" 
-                                                   Foreground="#999999"/>
+                                                   Foreground="{DynamicResource ThemeTertiaryText}"/>
                                     </Border>
 
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Title}" FontSize="16" 
-                                                   FontWeight="SemiBold" Foreground="#333333"/>
+                                                   FontWeight="SemiBold" Foreground="{DynamicResource ThemePrimaryText}"/>
                                         <TextBlock Text="{Binding Description}" 
-                                                   Foreground="#666666" FontSize="13"
+                                                   Foreground="{DynamicResource ThemeSecondaryText}" FontSize="13"
                                                    TextWrapping="Wrap" MaxWidth="600"
                                                    Margin="0 4 0 0" LineHeight="20"/>
                                         <TextBlock Text="{Binding DownloadsDisplay}" 
-                                                   Foreground="#999999" FontSize="12"
+                                                   Foreground="{DynamicResource ThemeTertiaryText}" FontSize="12"
                                                    Margin="0 4 0 0"/>
                                     </StackPanel>
                                 </Grid>
@@ -536,7 +544,7 @@
                         <Ellipse x:Name="statusDot" Width="8" Height="8" Fill="#34c759" Margin="0 0 8 0"
                                  Visibility="Collapsed"/>
                         <TextBlock x:Name="txtStatusMsg" VerticalAlignment="Center" 
-                                   Foreground="#999999" FontSize="12"/>
+                                   Foreground="{DynamicResource ThemeTertiaryText}" FontSize="12"/>
                     </StackPanel>
 
                     <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0 8 0 0" HorizontalAlignment="Center">
@@ -563,7 +571,7 @@
                             HorizontalAlignment="Left" Margin="0 0 0 16"
                             Click="BtnBack_Click"/>
 
-                    <Border Grid.Row="1" Background="#f2f2f7" CornerRadius="20" 
+                    <Border Grid.Row="1" Background="{DynamicResource ThemeCardBackground}" CornerRadius="20" 
                             Padding="24" Margin="0 0 0 16">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -574,7 +582,7 @@
                             <Grid Grid.Column="0" Width="72" Height="72">
                                 <Border Width="72" Height="72" 
                                         CornerRadius="18" ClipToBounds="True"
-                                        Background="#e5e5ea">
+                                        Background="{DynamicResource ThemeCardAltBackground}">
                                     <Image Source="{Binding SelectedMod.IconUrl}" 
                                            Stretch="UniformToFill">
                                         <Image.Style>
@@ -595,7 +603,7 @@
                                 <TextBlock Text="?" FontSize="28" 
                                            HorizontalAlignment="Center" 
                                            VerticalAlignment="Center" 
-                                           Foreground="#999999">
+                                           Foreground="{DynamicResource ThemeTertiaryText}">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -614,9 +622,9 @@
 
                             <StackPanel Grid.Column="1" Margin="16 0 0 0">
                                 <TextBlock Text="{Binding SelectedMod.Title}" FontSize="22" 
-                                           FontWeight="Bold" Foreground="#333333"/>
+                                           FontWeight="Bold" Foreground="{DynamicResource ThemePrimaryText}"/>
                                 <TextBlock Text="{Binding SelectedMod.Description}" 
-                                           Foreground="#666666" TextWrapping="Wrap" 
+                                           Foreground="{DynamicResource ThemeSecondaryText}" TextWrapping="Wrap" 
                                            Margin="0 6 0 0" FontSize="13" LineHeight="22"/>
                                 <StackPanel Orientation="Horizontal" Margin="0 12 0 0">
                                     <Button x:Name="btnOpenExternal" Content="访问 Modrinth" 
@@ -632,7 +640,7 @@
 
                     <StackPanel Grid.Row="2" Margin="0 0 0 12">
                         <TextBlock Text="选择游戏版本" FontSize="12" FontWeight="SemiBold" 
-                                   Foreground="#999999" Margin="0 0 0 8"/>
+                                   Foreground="{DynamicResource ThemeTertiaryText}" Margin="0 0 0 8"/>
                         <ScrollViewer HorizontalScrollBarVisibility="Auto" 
                                       VerticalScrollBarVisibility="Disabled"
                                       PanningMode="HorizontalOnly">
@@ -644,7 +652,7 @@
                         <ItemsControl x:Name="itemsVersionGroups">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Border Background="#f2f2f7" CornerRadius="16" 
+                                    <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" 
                                             Margin="0 6 0 0" Padding="16">
                                         <Grid>
                                             <Grid.RowDefinitions>
@@ -656,7 +664,7 @@
                                             <StackPanel Grid.Row="0" Orientation="Horizontal">
                                                 <TextBlock Text="{Binding VersionNumber}" 
                                                            FontSize="16" FontWeight="SemiBold"
-                                                           Foreground="#333333"/>
+                                                           Foreground="{DynamicResource ThemePrimaryText}"/>
                                                 <Border Background="#ff9500" CornerRadius="10" 
                                                         Padding="6 2" Margin="10 0 0 0"
                                                         Visibility="{Binding IsPreview, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -672,7 +680,7 @@
                                             </StackPanel>
 
                                             <TextBlock Grid.Row="1" Text="{Binding VersionInfo}" 
-                                                       Foreground="#999999" FontSize="12"
+                                                       Foreground="{DynamicResource ThemeTertiaryText}" FontSize="12"
                                                        Margin="0 6 0 0"/>
 
                                             <Button Grid.Row="2" Content="下载" 
@@ -706,25 +714,25 @@
                             Click="BtnBackFromDownload_Click"/>
 
                     <TextBlock Grid.Row="1" Text="确认下载" FontSize="24" 
-                               FontWeight="Bold" Foreground="#333333" Margin="0 0 16 0"/>
+                               FontWeight="Bold" Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 16 0"/>
 
-                    <Border Grid.Row="2" Background="#f2f2f7" CornerRadius="16" 
+                    <Border Grid.Row="2" Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" 
                             Padding="16" Margin="0 0 0 16">
                         <StackPanel>
                             <TextBlock Text="文件信息" FontSize="12" FontWeight="SemiBold" 
-                                       Foreground="#999999" Margin="0 0 0 8"/>
+                                       Foreground="{DynamicResource ThemeTertiaryText}" Margin="0 0 0 8"/>
                             <TextBlock x:Name="txtDownloadFileName" FontSize="16" 
-                                       Foreground="#333333" FontWeight="SemiBold"/>
+                                       Foreground="{DynamicResource ThemePrimaryText}" FontWeight="SemiBold"/>
                             <TextBlock x:Name="txtDownloadVersionInfo" FontSize="13" 
-                                       Foreground="#666666" Margin="0 4 0 0"/>
+                                       Foreground="{DynamicResource ThemeSecondaryText}" Margin="0 4 0 0"/>
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="3" Background="#f2f2f7" CornerRadius="16" 
+                    <Border Grid.Row="3" Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" 
                             Padding="16" Margin="0 0 0 16">
                         <StackPanel>
                             <TextBlock Text="保存位置" FontSize="12" FontWeight="SemiBold" 
-                                       Foreground="#999999" Margin="0 0 0 8"/>
+                                       Foreground="{DynamicResource ThemeTertiaryText}" Margin="0 0 0 8"/>
                             <StackPanel Orientation="Horizontal">
                                 <TextBox x:Name="txtDownloadPath" Width="500" 
                                          Style="{StaticResource ModernTextBox}"
@@ -754,16 +762,16 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="正在下载" FontSize="24" 
-                               FontWeight="Bold" Foreground="#333333" Margin="0 0 16 0"/>
+                               FontWeight="Bold" Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 16 0"/>
 
                     <TextBlock x:Name="txtDownloadingFile" Grid.Row="1" 
-                               FontSize="16" Foreground="#666666" Margin="0 0 12 0"/>
+                               FontSize="16" Foreground="{DynamicResource ThemeSecondaryText}" Margin="0 0 12 0"/>
 
-                    <Border Grid.Row="2" Background="#e5e5ea" CornerRadius="4" Height="8" 
+                    <Border Grid.Row="2" Background="{DynamicResource ThemeCardAltBackground}" CornerRadius="4" Height="8" 
                             Margin="0 0 0 8">
                         <Grid>
                             <Rectangle x:Name="progressBarFill" 
-                                       Fill="#007aff" 
+                                       Fill="{DynamicResource ThemeAccent}" 
                                        RadiusX="4" RadiusY="4"
                                        HorizontalAlignment="Left"
                                        Width="0"/>
@@ -772,9 +780,118 @@
 
                     <TextBlock x:Name="txtDownloadPercent" Grid.Row="3" 
                                HorizontalAlignment="Right"
-                               Foreground="#999999" FontSize="12"/>
+                               Foreground="{DynamicResource ThemeTertiaryText}" FontSize="12"/>
+                </Grid>
+
+                <!-- 设置面板 -->
+                <Grid x:Name="panelSettings" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <Button Grid.Row="0" Content="返回" 
+                            Style="{StaticResource SecondaryButton}"
+                            HorizontalAlignment="Left" Margin="0 0 0 16"
+                            Click="BtnBackFromSettings_Click"/>
+
+                    <TextBlock Grid.Row="1" Text="设置" FontSize="24" 
+                               FontWeight="Bold" Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 20"/>
+
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <!-- 主题模式 -->
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" Padding="20" Margin="0 0 0 16">
+                                <StackPanel>
+                                    <TextBlock Text="外观" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 12"/>
+                                    <TextBlock Text="选择应用的主题模式" FontSize="12"
+                                               Foreground="{DynamicResource ThemeTertiaryText}" Margin="0 0 0 12"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="btnThemeLight" Content="浅色" Tag="Light"
+                                                Click="ThemeButton_Click" Style="{StaticResource ThemeSegmentButton}"/>
+                                        <Button x:Name="btnThemeDark" Content="深色" Tag="Dark"
+                                                Click="ThemeButton_Click" Style="{StaticResource ThemeSegmentButton}"/>
+                                        <Button x:Name="btnThemeSystem" Content="跟随系统" Tag="System"
+                                                Click="ThemeButton_Click" Style="{StaticResource ThemeSegmentButton}"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 下载线程数 -->
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" Padding="20" Margin="0 0 0 16">
+                                <StackPanel>
+                                    <TextBlock Text="下载" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 12"/>
+                                    <TextBlock Text="最大并发下载线程数" FontSize="12"
+                                               Foreground="{DynamicResource ThemeTertiaryText}" Margin="0 0 0 12"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button x:Name="btnThreadMinus" Content="−" Width="36" Height="36"
+                                                Style="{StaticResource SecondaryButton}" Padding="0" FontSize="18"
+                                                Click="BtnThreadMinus_Click"/>
+                                        <TextBlock x:Name="txtThreadCount" Text="3" FontSize="18" FontWeight="Bold"
+                                                   Foreground="{DynamicResource ThemePrimaryText}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                   Width="60"/>
+                                        <Button x:Name="btnThreadPlus" Content="+" Width="36" Height="36"
+                                                Style="{StaticResource SecondaryButton}" Padding="0" FontSize="18"
+                                                Click="BtnThreadPlus_Click"/>
+                                        <TextBlock Text="线程" FontSize="13"
+                                                   Foreground="{DynamicResource ThemeSecondaryText}"
+                                                   VerticalAlignment="Center" Margin="12 0 0 0"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- GitHub 链接 -->
+                            <Button x:Name="btnGithub" Click="BtnGithub_Click"
+                                    HorizontalAlignment="Center" Margin="0 24 0 0"
+                                    Background="Transparent" BorderThickness="0" Cursor="Hand"
+                                    ToolTip="访问 GitHub 仓库">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Width="22" Height="22" Stretch="Uniform"
+                                          Fill="{DynamicResource ThemePrimaryText}"
+                                          Data="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                                    <TextBlock Text="HW-Community / Wpfhw" FontSize="13"
+                                               Foreground="{DynamicResource ThemeSecondaryText}"
+                                               VerticalAlignment="Center" Margin="8 0 0 0"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
             </Grid>
+
+            <!-- 右下角设置（齿轮）按钮 -->
+            <Button x:Name="btnSettings" Click="BtnSettings_Click"
+                    Width="44" Height="44"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Margin="0 0 24 24"
+                    Background="{DynamicResource ThemeAccent}"
+                    BorderThickness="0" Cursor="Hand"
+                    ToolTip="设置">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="22"
+                                Padding="10">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentPressed}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <Path Width="22" Height="22" Stretch="Uniform" Fill="#ffffff"
+                      Data="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+            </Button>
         </Grid>
     </Border>
 </Window>
