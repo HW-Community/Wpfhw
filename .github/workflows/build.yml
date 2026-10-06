@@ -1,0 +1,28 @@
+name: Build Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Show Installed .NET SDKs
+        run: dotnet --list-sdks
+
+      - name: Restore Dependencies
+        run: dotnet restore wpfhw.slnx
+
+      - name: Build
+        run: dotnet build wpfhw.slnx --no-restore --configuration Release
