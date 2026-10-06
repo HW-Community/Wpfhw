@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     private string _currentGameVer = "";
     private string _currentLoader = "";
     private string _currentProjectType = "mod";
+    private string _downloadProjectType = "mod";
     private string _downloadPath = "";
     private ModFile? _pendingDownloadFile;
     private VersionDisplayItem? _pendingVersion;
@@ -70,6 +71,12 @@ public partial class MainWindow : Window
 
     private static readonly HashSet<string> LoaderTypes = new() { "mod", "modpack" };
     private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack" };
+    private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     public MainWindow()
     {
@@ -834,6 +841,9 @@ public partial class MainWindow : Window
 
     private async void ShowVersionDetail(ModSearchHit modHit)
     {
+        _downloadProjectType = ProjectTypes.Contains(_currentProjectType)
+            ? _currentProjectType
+            : "mod";
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
@@ -963,7 +973,7 @@ public partial class MainWindow : Window
 
         if (_settings.SkipDownloadConfirm)
         {
-            StartDownload(mainFile);
+            StartDownload(mainFile, _downloadProjectType);
             return;
         }
 
@@ -1000,10 +1010,10 @@ public partial class MainWindow : Window
     private void BtnStartDownload_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingDownloadFile == null) return;
-        StartDownload(_pendingDownloadFile);
+        StartDownload(_pendingDownloadFile, _downloadProjectType);
     }
 
-    private void StartDownload(ModFile file)
+    private void StartDownload(ModFile file, string projectType)
     {
         _pendingDownloadFile = null;
         _pendingVersion = null;
@@ -1011,7 +1021,7 @@ public partial class MainWindow : Window
         var request = new DownloadRequest(
             Interlocked.Increment(ref _downloadIdCounter),
             file,
-            ResolveSaveDirectory(),
+            ResolveSaveDirectory(projectType),
             _settings.OverwriteExistingFiles,
             _settings.OpenFolderAfterDownload);
 
@@ -1021,20 +1031,36 @@ public partial class MainWindow : Window
         _ = Task.Run(() => RunDownloadAsync(request, _downloadCts!.Token));
     }
 
-    private string ResolveSaveDirectory()
+    private string ResolveSaveDirectory(string projectType)
     {
-        string saveDir = _downloadPath;
-        if (_settings.CreateTypeSubfolder && ProjectTypes.Contains(_currentProjectType))
-            saveDir = Path.Combine(saveDir, _currentProjectType);
+        string root = Path.GetFullPath(_downloadPath);
+        string saveDir = root;
+        if (_settings.CreateTypeSubfolder && ProjectTypes.Contains(projectType))
+        {
+            string candidate = Path.GetFullPath(Path.Combine(root, projectType));
+            if (IsSubPathOf(candidate, root))
+                saveDir = candidate;
+        }
 
         if (TryCreateDirectory(saveDir))
             return saveDir;
-        if (TryCreateDirectory(_downloadPath))
-            return _downloadPath;
+        if (TryCreateDirectory(root))
+            return root;
 
         string desktop = GetDesktopDirectory();
-        TryCreateDirectory(desktop);
+        if (!TryCreateDirectory(desktop))
+            txtStatusMsg.Text = "无法创建下载目录，将尝试保存到桌面";
         return desktop;
+    }
+
+    private static bool IsSubPathOf(string candidate, string root)
+    {
+        string rootPrefix = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        string fullCandidate = Path.GetFullPath(candidate);
+        return fullCandidate.Equals(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase)
+            || fullCandidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryCreateDirectory(string path)
@@ -1044,7 +1070,8 @@ public partial class MainWindow : Window
             Directory.CreateDirectory(path);
             return true;
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException)
         {
             return false;
         }
@@ -1065,7 +1092,14 @@ public partial class MainWindow : Window
         }
 
         string sanitized = new string(chars).Trim('.', ' ');
-        return string.IsNullOrWhiteSpace(sanitized) ? "download.bin" : sanitized;
+        if (string.IsNullOrWhiteSpace(sanitized))
+            return "download.bin";
+
+        string baseName = Path.GetFileNameWithoutExtension(sanitized);
+        if (ReservedFileNames.Contains(baseName))
+            sanitized = "_" + sanitized;
+
+        return sanitized;
     }
 
     private static string CommitDownloadedFile(string tempPath, string saveDir, string fileName, bool overwriteExisting)
@@ -1073,7 +1107,10 @@ public partial class MainWindow : Window
         string dest = Path.Combine(saveDir, fileName);
         if (overwriteExisting)
         {
-            File.Move(tempPath, dest, overwrite: true);
+            if (File.Exists(dest))
+                File.Replace(tempPath, dest, null);
+            else
+                File.Move(tempPath, dest);
             return dest;
         }
 
@@ -1084,6 +1121,8 @@ public partial class MainWindow : Window
             dest = index == 0
                 ? Path.Combine(saveDir, fileName)
                 : Path.Combine(saveDir, $"{name} ({index}){ext}");
+            if (File.Exists(dest))
+                continue;
             try
             {
                 File.Move(tempPath, dest);
@@ -1101,13 +1140,13 @@ public partial class MainWindow : Window
     {
         try
         {
-            var startInfo = new System.Diagnostics.ProcessStartInfo
+            string safePath = filePath.Replace("\"", "");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "explorer.exe",
+                Arguments = $"/select,\"{safePath}\"",
                 UseShellExecute = true
-            };
-            startInfo.ArgumentList.Add($"/select,{filePath}");
-            System.Diagnostics.Process.Start(startInfo);
+            });
             return true;
         }
         catch
@@ -1212,7 +1251,8 @@ public partial class MainWindow : Window
                     txtStatusMsg.Text = "下载完成，但无法打开所在文件夹");
             }
 
-            await Task.Delay(ownsPanel ? 1500 : 0, ct);
+            if (ownsPanel)
+                await Task.Delay(1500);
         }
         catch (OperationCanceledException)
         {
@@ -1307,6 +1347,7 @@ public class VersionDisplayItem
     }
 }
 
+/// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 状态。</summary>
 internal sealed record DownloadRequest(
     int DownloadId,
     ModFile File,
