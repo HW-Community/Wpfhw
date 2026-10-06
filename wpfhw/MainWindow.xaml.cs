@@ -40,9 +40,13 @@ public partial class MainWindow : Window
     private string _currentGameVer = "";
     private string _currentLoader = "";
     private string _currentProjectType = "mod";
+    private string _downloadProjectType = "mod";
+    private string _pendingDownloadProjectType = "mod";
     private string _downloadPath = "";
     private ModFile? _pendingDownloadFile;
     private VersionDisplayItem? _pendingVersion;
+    private const int MaxDuplicateSuffix = 1000;
+    private const int MaxFileNameLength = 200;
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _searchCts;
     private int _currentOffset = 0;
@@ -60,6 +64,7 @@ public partial class MainWindow : Window
     // 设置面板返回时要回到的面板
     private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading }
     private MainPanel _lastPanel = MainPanel.Search;
+    private bool _suppressSettingsSave;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -69,6 +74,12 @@ public partial class MainWindow : Window
 
     private static readonly HashSet<string> LoaderTypes = new() { "mod", "modpack" };
     private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack" };
+    private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    };
 
     public MainWindow()
     {
@@ -83,9 +94,8 @@ public partial class MainWindow : Window
         _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
             ? _settings.LastProjectType
             : "mod";
-        _downloadPath = !string.IsNullOrWhiteSpace(_settings.DownloadPath) && Directory.Exists(_settings.DownloadPath)
-            ? _settings.DownloadPath
-            : Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
         if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
         if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
@@ -99,6 +109,7 @@ public partial class MainWindow : Window
         UpdateLoaderVisibility();
         UpdateSearchPlaceholder();
         ApplyTheme(_settings.ThemeMode);
+        ApplyDownloadOptionsToUi();
         SaveSettings();
 
         _downloadCts = new CancellationTokenSource();
@@ -132,6 +143,39 @@ public partial class MainWindow : Window
         _settings.ThemeMode = _currentThemeMode;
         _settings.MaxDownloadThreads = _maxDownloadThreads;
         _settings.Save();
+    }
+
+    private void ApplyDownloadOptionsToUi()
+    {
+        _suppressSettingsSave = true;
+        try
+        {
+            txtDefaultDownloadPath.Text = _downloadPath;
+            chkCreateTypeSubfolder.IsChecked = _settings.CreateTypeSubfolder;
+            chkOverwriteExisting.IsChecked = _settings.OverwriteExistingFiles;
+            chkOpenFolderAfterDownload.IsChecked = _settings.OpenFolderAfterDownload;
+            chkSkipDownloadConfirm.IsChecked = _settings.SkipDownloadConfirm;
+        }
+        finally
+        {
+            _suppressSettingsSave = false;
+        }
+    }
+
+    private static string? ResolveExistingDirectory(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        return Directory.Exists(path) ? path : null;
+    }
+
+    private static string GetDesktopDirectory()
+        => Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+    private void SetDownloadPath(string path)
+    {
+        _downloadPath = path;
+        txtDefaultDownloadPath.Text = path;
+        SaveSettings();
     }
 
     private AppThemeMode _currentThemeMode = AppThemeMode.System;
@@ -288,6 +332,7 @@ public partial class MainWindow : Window
         panelSettings.Visibility = Visibility.Visible;
 
         UpdateThemeButtons();
+        ApplyDownloadOptionsToUi();
     }
 
     private void BtnBackFromSettings_Click(object sender, RoutedEventArgs e)
@@ -342,6 +387,36 @@ public partial class MainWindow : Window
         catch
         {
         }
+    }
+
+    private void BtnBrowseDefaultDownloadPath_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "选择默认下载文件夹",
+            FolderName = _downloadPath
+        };
+
+        if (dialog.ShowDialog() == true)
+            SetDownloadPath(dialog.FolderName);
+    }
+
+    private void BtnResetDownloadPath_Click(object sender, RoutedEventArgs e)
+        => SetDownloadPath(GetDesktopDirectory());
+
+    private void DownloadOption_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressSettingsSave) return;
+        SyncDownloadOptionsFromUi();
+        SaveSettings();
+    }
+
+    private void SyncDownloadOptionsFromUi()
+    {
+        _settings.CreateTypeSubfolder = chkCreateTypeSubfolder.IsChecked == true;
+        _settings.OverwriteExistingFiles = chkOverwriteExisting.IsChecked == true;
+        _settings.OpenFolderAfterDownload = chkOpenFolderAfterDownload.IsChecked == true;
+        _settings.SkipDownloadConfirm = chkSkipDownloadConfirm.IsChecked == true;
     }
 
     #endregion
@@ -773,6 +848,9 @@ public partial class MainWindow : Window
 
     private async void ShowVersionDetail(ModSearchHit modHit)
     {
+        _downloadProjectType = ProjectTypes.Contains(modHit.ProjectType)
+            ? modHit.ProjectType
+            : (ProjectTypes.Contains(_currentProjectType) ? _currentProjectType : "mod");
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
@@ -891,7 +969,6 @@ public partial class MainWindow : Window
     {
         if ((sender as Button)?.Tag is not VersionDisplayItem item) return;
 
-        _pendingVersion = item;
         var mainFile = item.Version.Files.FirstOrDefault(f => f.IsPrimary)
             ?? item.Version.Files.FirstOrDefault();
 
@@ -901,7 +978,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        _pendingVersion = item;
         _pendingDownloadFile = mainFile;
+        _pendingDownloadProjectType = _downloadProjectType;
+
+        if (_settings.SkipDownloadConfirm)
+        {
+            StartDownload(mainFile, _pendingDownloadProjectType);
+            return;
+        }
+
         txtDownloadPath.Text = _downloadPath;
         txtDownloadFileName.Text = mainFile.FileName;
         txtDownloadVersionInfo.Text = $"版本: {item.Version.VersionNumber} | MC版本: {string.Join(", ", item.Version.GameVersions.Take(3))}";
@@ -916,6 +1002,7 @@ public partial class MainWindow : Window
         panelVersionDetail.Visibility = Visibility.Visible;
         _pendingDownloadFile = null;
         _pendingVersion = null;
+        _pendingDownloadProjectType = "mod";
     }
 
     private void BtnBrowseDownloadPath_Click(object sender, RoutedEventArgs e)
@@ -928,54 +1015,205 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() == true)
         {
-            _downloadPath = dialog.FolderName;
-            txtDownloadPath.Text = _downloadPath;
-            SaveSettings();
+            SetDownloadPath(dialog.FolderName);
+            txtDownloadPath.Text = dialog.FolderName;
         }
     }
 
     private void BtnStartDownload_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingDownloadFile == null) return;
-
-        var file = _pendingDownloadFile;
-        string saveDir = _downloadPath;
-        int downloadId = Interlocked.Increment(ref _downloadIdCounter);
-
-        // 立即返回版本详情，允许用户继续排队下载
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
-        _pendingDownloadFile = null;
-        _pendingVersion = null;
-
-        txtStatusMsg.Text = $"已加入下载队列：{file.FileName}";
-
-        // 启动并发下载任务（受信号量限制）
-        _ = Task.Run(() => RunDownloadAsync(downloadId, file, saveDir, _downloadCts!.Token));
+        StartDownload(_pendingDownloadFile, _pendingDownloadProjectType);
     }
 
-    private async Task RunDownloadAsync(int downloadId, ModFile file,
-        string saveDir, CancellationToken ct)
+    private void StartDownload(ModFile file, string projectType)
+    {
+        if (!TryResolveSaveDirectory(projectType, out string saveDir))
+        {
+            txtStatusMsg.Text = "无法创建下载目录，请检查默认下载文件夹权限";
+            return;
+        }
+
+        string fileName = SanitizeFileName(file.FileName);
+        var request = new DownloadRequest(
+            Interlocked.Increment(ref _downloadIdCounter),
+            file.Url,
+            fileName,
+            saveDir,
+            _settings.OverwriteExistingFiles,
+            _settings.OpenFolderAfterDownload);
+
+        _pendingDownloadFile = null;
+        _pendingVersion = null;
+        _pendingDownloadProjectType = "mod";
+        panelDownloadConfirm.Visibility = Visibility.Collapsed;
+        panelVersionDetail.Visibility = Visibility.Visible;
+        txtStatusMsg.Text = $"已加入下载队列：{fileName}";
+        _ = Task.Run(() => RunDownloadAsync(request, _downloadCts!.Token));
+    }
+
+    private bool TryResolveSaveDirectory(string projectType, out string saveDir)
+    {
+        string root = Path.GetFullPath(_downloadPath);
+        saveDir = root;
+        if (_settings.CreateTypeSubfolder && ProjectTypes.Contains(projectType))
+        {
+            string candidate = Path.GetFullPath(Path.Combine(root, projectType));
+            if (IsSubPathOf(candidate, root))
+                saveDir = candidate;
+        }
+
+        if (TryCreateDirectory(saveDir))
+            return true;
+        if (TryCreateDirectory(root))
+        {
+            saveDir = root;
+            return true;
+        }
+
+        string desktop = GetDesktopDirectory();
+        if (TryCreateDirectory(desktop))
+        {
+            saveDir = desktop;
+            txtStatusMsg.Text = "默认下载目录不可用，已改存到桌面";
+            return true;
+        }
+
+        saveDir = "";
+        return false;
+    }
+
+    private static bool IsSubPathOf(string candidate, string root)
+    {
+        string rootPrefix = Path.GetFullPath(root)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        string fullCandidate = Path.GetFullPath(candidate);
+        return fullCandidate.Equals(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase)
+            || fullCandidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryCreateDirectory(string path)
+    {
+        try
+        {
+            Directory.CreateDirectory(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static string SanitizeFileName(string fileName)
+    {
+        string name = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(name))
+            return "download.bin";
+
+        char[] invalid = Path.GetInvalidFileNameChars();
+        var chars = name.ToCharArray();
+        for (int i = 0; i < chars.Length; i++)
+        {
+            if (Array.IndexOf(invalid, chars[i]) >= 0)
+                chars[i] = '_';
+        }
+
+        string sanitized = new string(chars).Trim('.', ' ');
+        if (string.IsNullOrWhiteSpace(sanitized))
+            return "download.bin";
+
+        int dot = sanitized.IndexOf('.');
+        string stem = dot >= 0 ? sanitized[..dot] : sanitized;
+        if (ReservedFileNames.Contains(stem))
+            sanitized = "_" + sanitized;
+
+        if (sanitized.Length > MaxFileNameLength)
+        {
+            string ext = Path.GetExtension(sanitized);
+            string body = Path.GetFileNameWithoutExtension(sanitized);
+            int keep = Math.Max(8, MaxFileNameLength - ext.Length - 9);
+            if (keep > body.Length) keep = body.Length;
+            sanitized = body[..keep] + "_" + Math.Abs(sanitized.GetHashCode()).ToString("x8")[..8] + ext;
+        }
+
+        return sanitized;
+    }
+
+    private static string CommitDownloadedFile(string tempPath, string saveDir, string fileName, bool overwriteExisting)
+    {
+        string dest = Path.Combine(saveDir, fileName);
+        if (overwriteExisting)
+        {
+            File.Move(tempPath, dest, overwrite: true);
+            return dest;
+        }
+
+        string name = Path.GetFileNameWithoutExtension(fileName);
+        string ext = Path.GetExtension(fileName);
+        for (int index = 0; index <= MaxDuplicateSuffix; index++)
+        {
+            dest = index == 0
+                ? Path.Combine(saveDir, fileName)
+                : Path.Combine(saveDir, $"{name} ({index}){ext}");
+            try
+            {
+                File.Move(tempPath, dest);
+                return dest;
+            }
+            catch (IOException ex) when (IsFileAlreadyExists(ex))
+            {
+            }
+        }
+
+        throw new IOException("无法分配不冲突的文件名，目录中同名文件过多");
+    }
+
+    private static bool IsFileAlreadyExists(IOException ex)
+        => (ex.HResult & 0xFFFF) is 80 or 183;
+
+    private static bool OpenContainingFolder(string filePath)
+    {
+        try
+        {
+            string fullPath = Path.GetFullPath(filePath);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{fullPath}\"",
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception
+            or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private async Task RunDownloadAsync(DownloadRequest request, CancellationToken ct)
     {
         bool ownsPanel = false;
         bool semaphoreAcquired = false;
+        string? tempPath = null;
+        string displayName = request.FileName;
         try
         {
             await _downloadSemaphore.WaitAsync(ct);
             semaphoreAcquired = true;
             Interlocked.Increment(ref _activeDownloadCount);
 
-            // 尝试占用下载进度面板
             lock (_panelLock)
             {
                 if (_panelOwnerId == -1)
                 {
-                    _panelOwnerId = downloadId;
+                    _panelOwnerId = request.DownloadId;
                     ownsPanel = true;
                 }
             }
-
-            string fullSavePath = Path.Combine(saveDir, file.FileName);
 
             await Dispatcher.InvokeAsync(() =>
             {
@@ -987,60 +1225,73 @@ public partial class MainWindow : Window
                     panelSettings.Visibility = Visibility.Collapsed;
                     panelDownloading.Visibility = Visibility.Visible;
 
-                    txtDownloadingFile.Text = file.FileName;
+                    txtDownloadingFile.Text = displayName;
                     progressBarFill.Width = 0;
                     txtDownloadPercent.Text = "0%";
                 }
                 else
                 {
-                    txtStatusMsg.Text = $"正在后台下载：{file.FileName}（并发 {_activeDownloadCount}）";
+                    txtStatusMsg.Text = $"正在后台下载：{displayName}（并发 {_activeDownloadCount}）";
                 }
             });
 
             using var response = await _httpClient.GetAsync(
-                file.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+                request.FileUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
             long totalBytes = response.Content.Headers.ContentLength ?? -1;
             long receivedBytes = 0;
             byte[] buffer = new byte[8192];
 
+            tempPath = Path.Combine(request.SaveDir, $".{Guid.NewGuid():N}.part");
             using var streamRemote = await response.Content.ReadAsStreamAsync(ct);
-            using var streamLocal = new FileStream(
-                fullSavePath, FileMode.Create, FileAccess.Write, FileShare.None, buffer.Length, true);
-
-            int readCount;
-            while ((readCount = await streamRemote.ReadAsync(buffer, ct)) > 0)
+            using (var streamLocal = new FileStream(
+                tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, buffer.Length, true))
             {
-                await streamLocal.WriteAsync(buffer.AsMemory(0, readCount), ct);
-                receivedBytes += readCount;
-
-                if (ownsPanel && totalBytes > 0)
+                int readCount;
+                while ((readCount = await streamRemote.ReadAsync(buffer, ct)) > 0)
                 {
-                    double percent = receivedBytes * 100.0 / totalBytes;
-                    await Dispatcher.InvokeAsync(() =>
+                    await streamLocal.WriteAsync(buffer.AsMemory(0, readCount), ct);
+                    receivedBytes += readCount;
+
+                    if (ownsPanel && totalBytes > 0)
                     {
-                        UpdateProgressBar(percent);
-                        txtDownloadPercent.Text = $"{percent:F1}%";
-                    });
+                        double percent = receivedBytes * 100.0 / totalBytes;
+                        await Dispatcher.InvokeAsync(() =>
+                        {
+                            UpdateProgressBar(percent);
+                            txtDownloadPercent.Text = $"{percent:F1}%";
+                        });
+                    }
                 }
             }
+
+            string savePath = CommitDownloadedFile(
+                tempPath, request.SaveDir, displayName, request.OverwriteExisting);
+            tempPath = null;
 
             await Dispatcher.InvokeAsync(() =>
             {
                 if (ownsPanel)
                 {
-                    txtDownloadingFile.Text = $"下载完成！{file.FileName}";
+                    txtDownloadingFile.Text = $"下载完成！{Path.GetFileName(savePath)}";
                     txtDownloadPercent.Text = "100%";
                     UpdateProgressBar(100);
                 }
                 else
                 {
-                    txtStatusMsg.Text = $"下载完成：{file.FileName}";
+                    txtStatusMsg.Text = $"下载完成：{Path.GetFileName(savePath)}";
                 }
             });
 
-            await Task.Delay(ownsPanel ? 1500 : 0, ct);
+            if (request.OpenFolderAfterDownload && !OpenContainingFolder(savePath))
+            {
+                await Dispatcher.InvokeAsync(() =>
+                    txtStatusMsg.Text = "下载完成，但无法打开所在文件夹");
+            }
+
+            if (ownsPanel)
+                await Task.Delay(1500);
         }
         catch (OperationCanceledException)
         {
@@ -1053,15 +1304,9 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    txtStatusMsg.Text = $"下载已取消：{file.FileName}";
+                    txtStatusMsg.Text = $"下载已取消：{displayName}";
                 }
             });
-
-            string fullSavePath = Path.Combine(saveDir, file.FileName);
-            if (File.Exists(fullSavePath))
-            {
-                try { File.Delete(fullSavePath); } catch { }
-            }
         }
         catch (Exception ex)
         {
@@ -1074,12 +1319,18 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    txtStatusMsg.Text = $"下载失败：{file.FileName} - {ex.Message}";
+                    txtStatusMsg.Text = $"下载失败：{displayName} - {ex.Message}";
                 }
             });
         }
         finally
         {
+            if (tempPath != null)
+            {
+                try { File.Delete(tempPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
+
             if (semaphoreAcquired)
             {
                 Interlocked.Decrement(ref _activeDownloadCount);
@@ -1114,6 +1365,15 @@ public partial class MainWindow : Window
 
         progressBarFill.Width = targetWidth;
     }
+
+    /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 或远程文件对象。</summary>
+    private sealed record DownloadRequest(
+        int DownloadId,
+        string FileUrl,
+        string FileName,
+        string SaveDir,
+        bool OverwriteExisting,
+        bool OpenFolderAfterDownload);
 
     #endregion
 }

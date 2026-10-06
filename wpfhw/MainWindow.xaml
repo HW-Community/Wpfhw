@@ -322,6 +322,15 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Margin" Value="0 0 8 0"/>
         </Style>
+
+        <Style x:Key="SettingsCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Margin" Value="0 0 0 12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        </Style>
     </Window.Resources>
 
     <Border Background="{DynamicResource ThemeWindowBackground}" CornerRadius="20" Margin="10">
@@ -841,6 +850,80 @@
                                                    Foreground="{DynamicResource ThemeSecondaryText}"
                                                    VerticalAlignment="Center" Margin="12 0 0 0"/>
                                     </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 默认下载文件夹 -->
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" Padding="20" Margin="0 0 0 16">
+                                <StackPanel>
+                                    <TextBlock Text="默认下载文件夹" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 12"/>
+                                    <TextBlock Text="下载文件时默认保存到此目录，可随时在下载确认页临时更改"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="0 0 0 12"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="txtDefaultDownloadPath"
+                                                 Style="{StaticResource ModernTextBox}"
+                                                 IsReadOnly="True" Height="40"
+                                                 FontSize="13" FontWeight="Normal"
+                                                 Margin="0 0 10 0"/>
+                                        <Button Grid.Column="1" Content="浏览..."
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="BtnBrowseDefaultDownloadPath_Click"
+                                                Margin="0 0 8 0"/>
+                                        <Button Grid.Column="2" Content="桌面"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="BtnResetDownloadPath_Click"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 下载行为 -->
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="16" Padding="20" Margin="0 0 0 16">
+                                <StackPanel>
+                                    <TextBlock Text="下载行为" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 12"/>
+
+                                    <CheckBox x:Name="chkCreateTypeSubfolder"
+                                              Content="按资源类型创建子文件夹"
+                                              Style="{StaticResource SettingsCheckBox}"
+                                              Checked="DownloadOption_Changed"
+                                              Unchecked="DownloadOption_Changed"/>
+                                    <TextBlock Text="例如模组会保存到 Downloads/mod，资源包保存到 Downloads/resourcepack"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="22 0 0 12"/>
+
+                                    <CheckBox x:Name="chkOverwriteExisting"
+                                              Content="覆盖已存在的同名文件"
+                                              Style="{StaticResource SettingsCheckBox}"
+                                              Checked="DownloadOption_Changed"
+                                              Unchecked="DownloadOption_Changed"/>
+                                    <TextBlock Text="关闭后若文件已存在，将自动添加序号后保存"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="22 0 0 12"/>
+
+                                    <CheckBox x:Name="chkOpenFolderAfterDownload"
+                                              Content="下载完成后打开所在文件夹"
+                                              Style="{StaticResource SettingsCheckBox}"
+                                              Checked="DownloadOption_Changed"
+                                              Unchecked="DownloadOption_Changed"/>
+                                    <TextBlock Text="每次成功下载后自动在资源管理器中打开保存目录"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="22 0 0 12"/>
+
+                                    <CheckBox x:Name="chkSkipDownloadConfirm"
+                                              Content="跳过下载确认，点击后直接开始"
+                                              Style="{StaticResource SettingsCheckBox}"
+                                              Checked="DownloadOption_Changed"
+                                              Unchecked="DownloadOption_Changed"/>
+                                    <TextBlock Text="关闭确认页后，下载将直接使用上方的默认文件夹"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="22 0 0 0"/>
                                 </StackPanel>
                             </Border>
 

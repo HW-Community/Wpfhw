@@ -37,6 +37,18 @@ public class AppSettings
     /// <summary>最大并发下载线程数（1-16），默认 3</summary>
     public int MaxDownloadThreads { get; set; } = 3;
 
+    /// <summary>下载时将按资源类型（mod / resourcepack 等）创建子文件夹</summary>
+    public bool CreateTypeSubfolder { get; set; }
+
+    /// <summary>目标文件已存在时直接覆盖；否则自动重命名</summary>
+    public bool OverwriteExistingFiles { get; set; }
+
+    /// <summary>下载完成后自动打开所在文件夹</summary>
+    public bool OpenFolderAfterDownload { get; set; }
+
+    /// <summary>点击下载后跳过确认页，直接开始下载</summary>
+    public bool SkipDownloadConfirm { get; set; }
+
     public static AppSettings Load()
     {
         AppStorage.Initialize();
