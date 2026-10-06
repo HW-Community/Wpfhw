@@ -1034,9 +1034,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        string fileName = SanitizeFileName(file.FileName);
         var request = new DownloadRequest(
             Interlocked.Increment(ref _downloadIdCounter),
-            file,
+            file.Url,
+            fileName,
             saveDir,
             _settings.OverwriteExistingFiles,
             _settings.OpenFolderAfterDownload);
@@ -1046,7 +1048,7 @@ public partial class MainWindow : Window
         _pendingDownloadProjectType = "mod";
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
-        txtStatusMsg.Text = $"已加入下载队列：{SanitizeFileName(file.FileName)}";
+        txtStatusMsg.Text = $"已加入下载队列：{fileName}";
         _ = Task.Run(() => RunDownloadAsync(request, _downloadCts!.Token));
     }
 
@@ -1177,16 +1179,16 @@ public partial class MainWindow : Window
         try
         {
             string fullPath = Path.GetFullPath(filePath);
-            var startInfo = new System.Diagnostics.ProcessStartInfo
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "explorer.exe",
+                Arguments = $"/select,\"{fullPath}\"",
                 UseShellExecute = true
-            };
-            startInfo.ArgumentList.Add($"/select,{fullPath}");
-            System.Diagnostics.Process.Start(startInfo);
+            });
             return true;
         }
-        catch
+        catch (Exception ex) when (ex is IOException or System.ComponentModel.Win32Exception
+            or InvalidOperationException)
         {
             return false;
         }
@@ -1197,7 +1199,7 @@ public partial class MainWindow : Window
         bool ownsPanel = false;
         bool semaphoreAcquired = false;
         string? tempPath = null;
-        string displayName = SanitizeFileName(request.File.FileName);
+        string displayName = request.FileName;
         try
         {
             await _downloadSemaphore.WaitAsync(ct);
@@ -1234,7 +1236,7 @@ public partial class MainWindow : Window
             });
 
             using var response = await _httpClient.GetAsync(
-                request.File.Url, HttpCompletionOption.ResponseHeadersRead, ct);
+                request.FileUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
             long totalBytes = response.Content.Headers.ContentLength ?? -1;
@@ -1325,7 +1327,8 @@ public partial class MainWindow : Window
         {
             if (tempPath != null)
             {
-                try { File.Delete(tempPath); } catch { }
+                try { File.Delete(tempPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             }
 
             if (semaphoreAcquired)
@@ -1363,10 +1366,11 @@ public partial class MainWindow : Window
         progressBarFill.Width = targetWidth;
     }
 
-    /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 状态。</summary>
+    /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 或远程文件对象。</summary>
     private sealed record DownloadRequest(
         int DownloadId,
-        ModFile File,
+        string FileUrl,
+        string FileName,
         string SaveDir,
         bool OverwriteExisting,
         bool OpenFolderAfterDownload);
