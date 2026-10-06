@@ -53,10 +53,28 @@ jobs:
               issue_number: issueNumber
             });
 
-            // 添加"拒绝"标签（默认）
+            // ★ 新增：根据关闭原因决定最终标签 ★
+            const stateReason = context.payload.issue.state_reason;
+            let finalLabel = '拒绝'; // 默认
+
+            if (stateReason === 'completed') {
+              // 由 PR 合并自动关闭，或手动标记为"完成"
+              finalLabel = '成功';
+            } else if (stateReason === 'not_planned') {
+              // 标记为"未计划"
+              finalLabel = '拒绝';
+            } else {
+              // 手动关闭且未选原因 → 检查是否有"重复"相关标签
+              const lower = currentLabels.map(s => s.toLowerCase());
+              if (lower.some(s => s.includes('duplicate') || s.includes('重复'))) {
+                finalLabel = '重复';
+              }
+            }
+
+            // 添加最终标签
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['拒绝']
+              labels: [finalLabel]
             });
