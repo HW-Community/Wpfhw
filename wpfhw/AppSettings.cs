@@ -37,7 +37,7 @@ public class AppSettings
     /// <summary>最大并发下载线程数（1-16），默认 3</summary>
     public int MaxDownloadThreads { get; set; } = 3;
 
-    /// <summary>下载时按资源类型（mod / resourcepack 等）创建子文件夹</summary>
+    /// <summary>下载时将按资源类型（mod / resourcepack 等）创建子文件夹</summary>
     public bool CreateTypeSubfolder { get; set; }
 
     /// <summary>目标文件已存在时直接覆盖；否则自动重命名</summary>
