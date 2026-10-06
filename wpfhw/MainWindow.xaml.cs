@@ -41,9 +41,12 @@ public partial class MainWindow : Window
     private string _currentLoader = "";
     private string _currentProjectType = "mod";
     private string _downloadProjectType = "mod";
+    private string _pendingDownloadProjectType = "mod";
     private string _downloadPath = "";
     private ModFile? _pendingDownloadFile;
     private VersionDisplayItem? _pendingVersion;
+    private const int MaxDuplicateSuffix = 1000;
+    private const int MaxFileNameLength = 200;
     private CancellationTokenSource? _downloadCts;
     private CancellationTokenSource? _searchCts;
     private int _currentOffset = 0;
@@ -172,7 +175,6 @@ public partial class MainWindow : Window
     {
         _downloadPath = path;
         txtDefaultDownloadPath.Text = path;
-        txtDownloadPath.Text = path;
         SaveSettings();
     }
 
@@ -404,7 +406,7 @@ public partial class MainWindow : Window
 
     private void DownloadOption_Changed(object sender, RoutedEventArgs e)
     {
-        if (_suppressSettingsSave || !IsLoaded) return;
+        if (_suppressSettingsSave) return;
         SyncDownloadOptionsFromUi();
         SaveSettings();
     }
@@ -976,14 +978,16 @@ public partial class MainWindow : Window
             return;
         }
 
+        _pendingVersion = item;
+        _pendingDownloadFile = mainFile;
+        _pendingDownloadProjectType = _downloadProjectType;
+
         if (_settings.SkipDownloadConfirm)
         {
-            StartDownload(mainFile, _downloadProjectType);
+            StartDownload(mainFile, _pendingDownloadProjectType);
             return;
         }
 
-        _pendingVersion = item;
-        _pendingDownloadFile = mainFile;
         txtDownloadPath.Text = _downloadPath;
         txtDownloadFileName.Text = mainFile.FileName;
         txtDownloadVersionInfo.Text = $"版本: {item.Version.VersionNumber} | MC版本: {string.Join(", ", item.Version.GameVersions.Take(3))}";
@@ -998,6 +1002,7 @@ public partial class MainWindow : Window
         panelVersionDetail.Visibility = Visibility.Visible;
         _pendingDownloadFile = null;
         _pendingVersion = null;
+        _pendingDownloadProjectType = "mod";
     }
 
     private void BtnBrowseDownloadPath_Click(object sender, RoutedEventArgs e)
@@ -1009,13 +1014,16 @@ public partial class MainWindow : Window
         };
 
         if (dialog.ShowDialog() == true)
+        {
             SetDownloadPath(dialog.FolderName);
+            txtDownloadPath.Text = dialog.FolderName;
+        }
     }
 
     private void BtnStartDownload_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingDownloadFile == null) return;
-        StartDownload(_pendingDownloadFile, _downloadProjectType);
+        StartDownload(_pendingDownloadFile, _pendingDownloadProjectType);
     }
 
     private void StartDownload(ModFile file, string projectType)
@@ -1035,6 +1043,7 @@ public partial class MainWindow : Window
 
         _pendingDownloadFile = null;
         _pendingVersion = null;
+        _pendingDownloadProjectType = "mod";
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
         txtStatusMsg.Text = $"已加入下载队列：{SanitizeFileName(file.FileName)}";
@@ -1064,6 +1073,7 @@ public partial class MainWindow : Window
         if (TryCreateDirectory(desktop))
         {
             saveDir = desktop;
+            txtStatusMsg.Text = "默认下载目录不可用，已改存到桌面";
             return true;
         }
 
@@ -1113,9 +1123,19 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(sanitized))
             return "download.bin";
 
-        string baseName = Path.GetFileNameWithoutExtension(sanitized);
-        if (ReservedFileNames.Contains(baseName))
+        int dot = sanitized.IndexOf('.');
+        string stem = dot >= 0 ? sanitized[..dot] : sanitized;
+        if (ReservedFileNames.Contains(stem))
             sanitized = "_" + sanitized;
+
+        if (sanitized.Length > MaxFileNameLength)
+        {
+            string ext = Path.GetExtension(sanitized);
+            string body = Path.GetFileNameWithoutExtension(sanitized);
+            int keep = Math.Max(8, MaxFileNameLength - ext.Length - 9);
+            if (keep > body.Length) keep = body.Length;
+            sanitized = body[..keep] + "_" + Math.Abs(sanitized.GetHashCode()).ToString("x8")[..8] + ext;
+        }
 
         return sanitized;
     }
@@ -1124,11 +1144,14 @@ public partial class MainWindow : Window
     {
         string dest = Path.Combine(saveDir, fileName);
         if (overwriteExisting)
-            return ReplaceOrMove(tempPath, dest);
+        {
+            File.Move(tempPath, dest, overwrite: true);
+            return dest;
+        }
 
         string name = Path.GetFileNameWithoutExtension(fileName);
         string ext = Path.GetExtension(fileName);
-        for (int index = 0; index <= 1000; index++)
+        for (int index = 0; index <= MaxDuplicateSuffix; index++)
         {
             dest = index == 0
                 ? Path.Combine(saveDir, fileName)
@@ -1138,7 +1161,7 @@ public partial class MainWindow : Window
                 File.Move(tempPath, dest);
                 return dest;
             }
-            catch (IOException) when (File.Exists(dest))
+            catch (IOException ex) when (IsFileAlreadyExists(ex))
             {
             }
         }
@@ -1146,33 +1169,20 @@ public partial class MainWindow : Window
         throw new IOException("无法分配不冲突的文件名，目录中同名文件过多");
     }
 
-    private static string ReplaceOrMove(string tempPath, string dest)
-    {
-        try
-        {
-            if (File.Exists(dest))
-                File.Replace(tempPath, dest, null);
-            else
-                File.Move(tempPath, dest);
-            return dest;
-        }
-        catch (IOException)
-        {
-            File.Move(tempPath, dest, overwrite: true);
-            return dest;
-        }
-    }
+    private static bool IsFileAlreadyExists(IOException ex)
+        => (ex.HResult & 0xFFFF) is 80 or 183;
 
     private static bool OpenContainingFolder(string filePath)
     {
         try
         {
+            string fullPath = Path.GetFullPath(filePath);
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = "explorer.exe",
                 UseShellExecute = true
             };
-            startInfo.ArgumentList.Add($"/select,{filePath}");
+            startInfo.ArgumentList.Add($"/select,{fullPath}");
             System.Diagnostics.Process.Start(startInfo);
             return true;
         }
