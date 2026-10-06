@@ -1,0 +1,62 @@
+name: Issue Closed Label Handler
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  issues: write
+
+jobs:
+  handle-closed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Save and Clean Labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issueNumber = context.payload.issue.number;
+            const currentLabels = context.payload.issue.labels.map(l => l.name);
+
+            // 保存当前标签到 Issue 的 body 中（用于 Reopen 时恢复）
+            const issue = context.payload.issue;
+            const marker = '<!-- LABEL_BACKUP -->';
+            const backupRegex = new RegExp(`${marker}[\\s\\S]*?${marker}`, 'g');
+            const backupData = `${marker}\n${JSON.stringify(currentLabels)}\n${marker}`;
+
+            let newBody = issue.body || '';
+            if (backupRegex.test(newBody)) {
+              newBody = newBody.replace(backupRegex, backupData);
+            } else {
+              newBody = newBody + '\n\n' + backupData;
+            }
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: newBody
+            });
+
+            // 移除所有标签
+            await github.rest.issues.removeAllLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            // 添加"拒绝"标签（默认）
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['拒绝']
+            });
