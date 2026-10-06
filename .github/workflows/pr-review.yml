@@ -31,17 +31,116 @@ jobs:
               labels: ['未验证']
             });
 
-      - name: DeepSeek Code Review
-        uses: LittleY98/ai-code-review@v1.0.0
+      - name: Dump PR Info to Files
+        uses: actions/github-script@v7
         with:
-          API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          API_BASE_URL: ${{ vars.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com/v1' }}
-          MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-chat' }}
-          SYSTEM_PROMPT: |
-            你是一位资深代码审查员。请审查本次 PR 的代码变更，指出：
-            1. 潜在的 Bug 和逻辑错误
-            2. 代码质量问题
-            3. 安全风险
-            4. 改进建议
-            请用中文回复，使用 Markdown 格式。
-          REVIEWER_NAME: 'Wpfhw Bot'
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const fs = require('fs');
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+
+            let diffText = '';
+            for (const f of files) {
+              diffText += `\n### ${f.filename} (${f.status}, +${f.additions}/-${f.deletions})\n`;
+              if (f.patch) {
+                diffText += '```diff\n' + f.patch + '\n```\n';
+              } else {
+                diffText += '_（无 diff 内容或二进制文件）_\n';
+              }
+            }
+
+            if (diffText.length > 30000) {
+              diffText = diffText.slice(0, 30000) + '\n\n...（内容过长已截断）';
+            }
+            if (!diffText.trim()) {
+              diffText = '（本次 PR 无文件变更）';
+            }
+
+            fs.writeFileSync('/tmp/pr_title.txt', pr.title || '（无标题）');
+            fs.writeFileSync('/tmp/pr_body.txt', pr.body || '（无描述）');
+            fs.writeFileSync('/tmp/pr_diff.txt', diffText);
+
+            console.log('PR title length:', (pr.title || '').length);
+            console.log('PR diff length:', diffText.length);
+
+      - name: Call DeepSeek API
+        id: ai
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_API_BASE_URL: ${{ vars.DEEPSEEK_API_BASE_URL || 'https://api.deepseek.com/v1' }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-chat' }}
+        run: |
+          set -e
+
+          # 读取三个文件
+          PR_TITLE=$(cat /tmp/pr_title.txt)
+          PR_BODY=$(cat /tmp/pr_body.txt)
+          PR_DIFF=$(cat /tmp/pr_diff.txt)
+
+          # 用 jq 构造 JSON 请求体
+          jq -n \
+            --arg model "$DEEPSEEK_MODEL" \
+            --arg title "$PR_TITLE" \
+            --arg body "$PR_BODY" \
+            --arg diff "$PR_DIFF" \
+            '{
+              model: $model,
+              messages: [
+                {
+                  role: "system",
+                  content: "你是一位资深代码审查员，用中文回复。请审查下面的 PR 变更，指出：1) 潜在的 Bug 和逻辑错误 2) 代码质量问题 3) 安全风险 4) 改进建议。使用 Markdown 格式，条理清晰，简洁有力。"
+                },
+                {
+                  role: "user",
+                  content: ("## PR 标题\n" + $title + "\n\n## PR 描述\n" + $body + "\n\n## 代码变更\n" + $diff)
+                }
+              ],
+              temperature: 0.3,
+              stream: false
+            }' > /tmp/request.json
+
+          # 调用 API
+          HTTP_CODE=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${DEEPSEEK_API_BASE_URL}/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
+            --data @/tmp/request.json \
+            --max-time 120)
+
+          echo "HTTP 状态码: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "DeepSeek API 调用失败，响应:"
+            cat /tmp/response.json
+            exit 1
+          fi
+
+          # 提取评论内容
+          jq -r '.choices[0].message.content' /tmp/response.json > /tmp/review.md
+
+          echo "===== DeepSeek 审查结果（前 200 行）====="
+          head -n 200 /tmp/review.md
+
+      - name: Post Review Comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const fs = require('fs');
+            const review = fs.readFileSync('/tmp/review.md', 'utf8');
+            const body = `## 🤖 DeepSeek 代码审查\n\n${review}\n\n---\n*本评论由 人工智能 自动生成，仅供参考*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
