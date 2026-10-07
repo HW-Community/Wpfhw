@@ -104,6 +104,13 @@ public sealed class BmclApiClient
     public static string GetOptiFineUrl(string mcVersion, string type, string patch)
         => $"{BaseUrl}/optifine/{Uri.EscapeDataString(mcVersion)}/{Uri.EscapeDataString(type)}/{Uri.EscapeDataString(patch)}";
 
+    public static bool IsAllowedDownloadUrl(string url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+               || string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+           && Uri.TryCreate(BaseUrl, UriKind.Absolute, out var baseUri)
+           && string.Equals(uri.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase);
+
     public static string MirrorUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return url;

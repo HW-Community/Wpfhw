@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace wpfhw;
 
@@ -368,12 +369,15 @@ public sealed class MinecraftInstaller
         if (string.IsNullOrWhiteSpace(rel) || rel.Contains("..", StringComparison.Ordinal))
             return;
 
+        string? sha1 = artifact["sha1"]?.ToString();
+        if (string.IsNullOrWhiteSpace(sha1))
+            return;
+
         string url = artifact["url"]?.ToString() ?? "";
         url = string.IsNullOrWhiteSpace(url)
             ? $"{BmclApiClient.BaseUrl}/maven/{rel.Replace('\\', '/')}"
             : BmclApiClient.MirrorUrl(url);
-        jobs.Add((url, Path.Combine(librariesDir, rel.Replace('/', Path.DirectorySeparatorChar)),
-            artifact["sha1"]?.ToString()));
+        jobs.Add((url, Path.Combine(librariesDir, rel.Replace('/', Path.DirectorySeparatorChar)), sha1));
     }
 
     private async Task DownloadAssetsAsync(
@@ -475,6 +479,8 @@ public sealed class MinecraftInstaller
     private async Task DownloadFileAsync(
         string url, string destPath, string? sha1, bool requireHash, CancellationToken ct)
     {
+        if (!BmclApiClient.IsAllowedDownloadUrl(url))
+            throw new InvalidOperationException($"下载地址不在镜像白名单内：{Path.GetFileName(destPath)}");
         if (requireHash && string.IsNullOrWhiteSpace(sha1))
             throw new InvalidOperationException($"缺少校验哈希：{Path.GetFileName(destPath)}");
 
@@ -637,19 +643,18 @@ public sealed class MinecraftInstaller
         };
     }
 
+    private static readonly Regex VersionNamePattern = new(@"^[A-Za-z0-9._\-]+$", RegexOptions.CultureInvariant);
+
     public static string SanitizeVersionSegment(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
             throw new InvalidOperationException("版本名不能为空");
 
         string name = value.Trim();
-        if (name.Contains("..", StringComparison.Ordinal)
-            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-            || name.IndexOfAny(['/', '\\', ':']) >= 0)
-            throw new InvalidOperationException("版本名包含非法字符");
-
         if (name.Length > 80)
             name = name[..80];
+        if (name.Contains("..", StringComparison.Ordinal) || !VersionNamePattern.IsMatch(name))
+            throw new InvalidOperationException("版本名包含非法字符");
         return name;
     }
 
