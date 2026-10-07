@@ -27,7 +27,7 @@ public sealed class BmclApiClient
 
     public async Task<McVersionManifest> GetManifestAsync(CancellationToken ct)
     {
-        Exception? lastError = null;
+        var errors = new List<Exception>();
         foreach (string path in new[]
                  {
                      "/mc/game/version_manifest_v2.json",
@@ -47,11 +47,12 @@ public sealed class BmclApiClient
             }
             catch (Exception ex)
             {
-                lastError = lastError == null ? ex : new AggregateException(lastError, ex);
+                errors.Add(ex);
             }
         }
 
-        throw new InvalidOperationException("无法从 BMCLAPI 获取版本列表", lastError);
+        throw new InvalidOperationException("无法从 BMCLAPI 获取版本列表",
+            errors.Count == 1 ? errors[0] : new AggregateException(errors));
     }
 
     public Task<string> GetVersionJsonAsync(string versionId, CancellationToken ct)
@@ -114,7 +115,8 @@ public sealed class BmclApiClient
             string result = to + url[from.Length..];
             if (result.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
                 && Uri.TryCreate(result, UriKind.Absolute, out var mirrored)
-                && string.Equals(mirrored.Host, "bmclapi2.bangbang93.com", StringComparison.OrdinalIgnoreCase))
+                && Uri.TryCreate(BaseUrl, UriKind.Absolute, out var baseUri)
+                && string.Equals(mirrored.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase))
                 return result;
         }
 
@@ -130,7 +132,8 @@ public sealed class BmclApiClient
             while ((index = text.IndexOf(from, index, StringComparison.OrdinalIgnoreCase)) >= 0)
             {
                 int end = index;
-                while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not '"' and not '\'')
+                while (end < text.Length && !char.IsWhiteSpace(text[end])
+                       && text[end] is not '"' and not '\'' and not ')' and not ',' and not '}' and not ']' and not '>')
                     end++;
                 string original = text[index..end];
                 string mirrored = MirrorUrl(original);

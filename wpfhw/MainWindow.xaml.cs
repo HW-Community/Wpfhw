@@ -209,30 +209,12 @@ public partial class MainWindow : Window
 
     private static string? ResolveWritableDirectory(string? path)
     {
-        string? existing = ResolveExistingDirectory(path);
-        string candidate = existing
-            ?? (string.IsNullOrWhiteSpace(path)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft")
-                : path);
-        try
-        {
-            Directory.CreateDirectory(candidate);
-            return candidate;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        {
-            try
-            {
-                string fallback = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
-                Directory.CreateDirectory(fallback);
-                return fallback;
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        if (!string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+            return path;
+
+        string fallback = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
+        return Directory.Exists(fallback) ? fallback : GetDesktopDirectory();
     }
 
     private static string GetDesktopDirectory()
