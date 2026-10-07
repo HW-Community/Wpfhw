@@ -80,6 +80,8 @@ public partial class MainWindow : Window
     private GameListState _gameListState = GameListState.Idle;
     private CancellationTokenSource? _loaderListCts;
     private CancellationTokenSource? _mcInstallCts;
+    private bool _mcInstallInProgress;
+    private bool _downloadPanelDismissed;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -483,6 +485,8 @@ public partial class MainWindow : Window
 
         _currentProjectType = btn.Tag?.ToString() ?? "mod";
         UpdateNavStyle(btn);
+
+        DismissDownloadingPanel();
 
         if (_currentProjectType == NavGame)
         {
@@ -913,10 +917,10 @@ public partial class MainWindow : Window
         _downloadProjectType = ProjectTypes.Contains(modHit.ProjectType)
             ? modHit.ProjectType
             : (ProjectTypes.Contains(_currentProjectType) ? _currentProjectType : "mod");
+        DismissDownloadingPanel();
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Visible;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
         panelGame.Visibility = Visibility.Collapsed;
 
         panelVersionDetail.DataContext = new { SelectedMod = modHit };
@@ -1283,12 +1287,14 @@ public partial class MainWindow : Window
             {
                 if (ownsPanel)
                 {
+                    _downloadPanelDismissed = false;
                     panelVersionDetail.Visibility = Visibility.Collapsed;
                     panelSearch.Visibility = Visibility.Collapsed;
                     panelDownloadConfirm.Visibility = Visibility.Collapsed;
                     panelSettings.Visibility = Visibility.Collapsed;
                     panelGame.Visibility = Visibility.Collapsed;
                     panelDownloading.Visibility = Visibility.Visible;
+                    RefreshDownloadFab();
 
                     txtDownloadingFile.Text = displayName;
                     progressBarFill.Width = 0;
@@ -1319,15 +1325,16 @@ public partial class MainWindow : Window
                     await streamLocal.WriteAsync(buffer.AsMemory(0, readCount), ct);
                     receivedBytes += readCount;
 
-                    if (ownsPanel && totalBytes > 0)
-                    {
-                        double percent = receivedBytes * 100.0 / totalBytes;
-                        await Dispatcher.InvokeAsync(() =>
+                        if (ownsPanel && !_downloadPanelDismissed && totalBytes > 0)
                         {
-                            UpdateProgressBar(percent);
-                            txtDownloadPercent.Text = $"{percent:F1}%";
-                        });
-                    }
+                            double percent = receivedBytes * 100.0 / totalBytes;
+                            await Dispatcher.InvokeAsync(() =>
+                            {
+                                if (_downloadPanelDismissed) return;
+                                UpdateProgressBar(percent);
+                                txtDownloadPercent.Text = $"{percent:F1}%";
+                            });
+                        }
                 }
             }
 
@@ -1411,7 +1418,9 @@ public partial class MainWindow : Window
                         _panelOwnerId = -1;
                     }
 
-                    if (panelSettings.Visibility != Visibility.Visible
+                    RefreshDownloadFab();
+                    if (!_downloadPanelDismissed
+                        && panelSettings.Visibility != Visibility.Visible
                         && panelGame.Visibility != Visibility.Visible)
                     {
                         panelDownloading.Visibility = Visibility.Collapsed;
@@ -1424,12 +1433,50 @@ public partial class MainWindow : Window
 
     private void UpdateProgressBar(double percent)
     {
+        if (_downloadPanelDismissed) return;
         if (progressBarFill.Parent is not FrameworkElement parent) return;
 
         double targetWidth = percent / 100.0 * parent.ActualWidth;
         if (targetWidth < 0) targetWidth = 0;
 
         progressBarFill.Width = targetWidth;
+    }
+
+    private bool HasActiveDownload()
+        => _mcInstallInProgress || Volatile.Read(ref _activeDownloadCount) > 0;
+
+    private void RefreshDownloadFab()
+    {
+        btnActiveDownload.Visibility = HasActiveDownload() && _downloadPanelDismissed
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void DismissDownloadingPanel()
+    {
+        if (panelDownloading.Visibility != Visibility.Visible) return;
+        panelDownloading.Visibility = Visibility.Collapsed;
+        if (HasActiveDownload())
+            _downloadPanelDismissed = true;
+        RefreshDownloadFab();
+    }
+
+    private void BtnActiveDownload_Click(object sender, RoutedEventArgs e)
+    {
+        if (!HasActiveDownload())
+        {
+            RefreshDownloadFab();
+            return;
+        }
+
+        _downloadPanelDismissed = false;
+        panelSearch.Visibility = Visibility.Collapsed;
+        panelVersionDetail.Visibility = Visibility.Collapsed;
+        panelDownloadConfirm.Visibility = Visibility.Collapsed;
+        panelSettings.Visibility = Visibility.Collapsed;
+        panelGame.Visibility = Visibility.Collapsed;
+        panelDownloading.Visibility = Visibility.Visible;
+        RefreshDownloadFab();
     }
 
     /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 或远程文件对象。</summary>
@@ -1447,10 +1494,10 @@ public partial class MainWindow : Window
 
     private void ShowGamePanel()
     {
+        DismissDownloadingPanel();
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Collapsed;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
         panelSettings.Visibility = Visibility.Collapsed;
         panelGame.Visibility = Visibility.Visible;
         txtMinecraftPath.Text = _minecraftPath;
@@ -1770,14 +1817,18 @@ public partial class MainWindow : Window
         _mcInstallCts?.Dispose();
         _mcInstallCts = new CancellationTokenSource();
         btnInstallMinecraft.IsEnabled = false;
+        _mcInstallInProgress = true;
+        _downloadPanelDismissed = false;
         panelGame.Visibility = Visibility.Collapsed;
         panelDownloading.Visibility = Visibility.Visible;
+        RefreshDownloadFab();
         txtDownloadingFile.Text = $"准备安装 {MinecraftInstaller.BuildDefaultVersionName(request)}";
         progressBarFill.Width = 0;
         txtDownloadPercent.Text = "0%";
 
         var progress = new Progress<MinecraftInstallProgress>(p =>
         {
+            if (_downloadPanelDismissed) return;
             txtDownloadingFile.Text = p.Message;
             txtDownloadPercent.Text = $"{p.Percent:F0}%";
             UpdateProgressBar(p.Percent);
@@ -1786,32 +1837,45 @@ public partial class MainWindow : Window
         try
         {
             await _mcInstaller.InstallAsync(request, progress, _mcInstallCts.Token);
-            txtDownloadingFile.Text = "安装完成";
-            txtDownloadPercent.Text = "100%";
-            UpdateProgressBar(100);
+            if (!_downloadPanelDismissed)
+            {
+                txtDownloadingFile.Text = "安装完成";
+                txtDownloadPercent.Text = "100%";
+                UpdateProgressBar(100);
+            }
             if (request.OpenFolderWhenDone)
             {
                 string reveal = Directory.EnumerateFiles(_minecraftPath, "*", SearchOption.TopDirectoryOnly)
                     .FirstOrDefault() ?? _minecraftPath;
                 OpenContainingFolder(reveal);
             }
-            await Task.Delay(1200);
+            if (!_downloadPanelDismissed)
+                await Task.Delay(1200);
         }
         catch (OperationCanceledException)
         {
-            txtDownloadingFile.Text = "安装已取消";
+            if (!_downloadPanelDismissed)
+                txtDownloadingFile.Text = "安装已取消";
         }
         catch (Exception ex)
         {
-            txtDownloadingFile.Text = $"安装失败：{ex.GetBaseException().Message}";
             txtGameStatus.Text = $"安装失败：{ex.GetBaseException().Message}";
-            await Task.Delay(1800);
+            if (!_downloadPanelDismissed)
+            {
+                txtDownloadingFile.Text = $"安装失败：{ex.GetBaseException().Message}";
+                await Task.Delay(1800);
+            }
         }
         finally
         {
+            _mcInstallInProgress = false;
             btnInstallMinecraft.IsEnabled = true;
-            panelDownloading.Visibility = Visibility.Collapsed;
-            panelGame.Visibility = Visibility.Visible;
+            RefreshDownloadFab();
+            if (!_downloadPanelDismissed)
+            {
+                panelDownloading.Visibility = Visibility.Collapsed;
+                panelGame.Visibility = Visibility.Visible;
+            }
         }
     }
 
