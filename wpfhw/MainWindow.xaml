@@ -323,6 +323,12 @@
             <Setter Property="Margin" Value="0 0 8 0"/>
         </Style>
 
+        <Style x:Key="InstallModeButton" TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+            <Setter Property="Padding" Value="14 12"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
         <Style x:Key="SettingsCheckBox" TargetType="CheckBox">
             <Setter Property="Foreground" Value="{DynamicResource ThemePrimaryText}"/>
             <Setter Property="FontSize" Value="13"/>
@@ -399,6 +405,9 @@
                                         Click="Nav_Click" Style="{StaticResource SecondaryButton}"
                                         Background="Transparent"/>
                                 <Button x:Name="navPack" Content="整合包" Tag="modpack" 
+                                        Click="Nav_Click" Style="{StaticResource SecondaryButton}"
+                                        Background="Transparent"/>
+                                <Button x:Name="navGame" Content="游戏" Tag="game"
                                         Click="Nav_Click" Style="{StaticResource SecondaryButton}"
                                         Background="Transparent"/>
                             </StackPanel>
@@ -790,6 +799,240 @@
                     <TextBlock x:Name="txtDownloadPercent" Grid.Row="3" 
                                HorizontalAlignment="Right"
                                Foreground="{DynamicResource ThemeTertiaryText}" FontSize="12"/>
+                </Grid>
+
+                <Grid x:Name="panelGame" Grid.Row="0" Grid.RowSpan="2" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="280"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Background="{DynamicResource ThemeCardBackground}"
+                            CornerRadius="20" Padding="16">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Margin="0 0 0 12">
+                                <TextBlock Text="Minecraft" FontSize="20" FontWeight="Bold"
+                                           Foreground="{DynamicResource ThemePrimaryText}"/>
+                                <TextBlock x:Name="txtGameSourceHint" Text="通过 BMCLAPI 加速下载"
+                                           FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                           Margin="0 4 0 0"/>
+                            </StackPanel>
+
+                            <TextBox x:Name="txtGameSearch" Grid.Row="1"
+                                     Style="{StaticResource ModernTextBox}"
+                                     Height="40" FontSize="14" FontWeight="Normal"
+                                     Tag="筛选版本号..."
+                                     TextChanged="TxtGameSearch_TextChanged"
+                                     Margin="0 0 0 10"/>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0 0 0 10">
+                                <Button x:Name="btnGameFilterRelease" Content="正式"
+                                        Tag="release" Click="GameFilter_Click"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Padding="12 6" FontSize="12" Margin="0 0 6 0"/>
+                                <Button x:Name="btnGameFilterSnapshot" Content="快照"
+                                        Tag="snapshot" Click="GameFilter_Click"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Padding="12 6" FontSize="12" Margin="0 0 6 0"/>
+                                <Button x:Name="btnGameFilterLegacy" Content="远古"
+                                        Tag="old" Click="GameFilter_Click"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Padding="12 6" FontSize="12"/>
+                            </StackPanel>
+
+                            <ListBox x:Name="lstGameVersions" Grid.Row="3"
+                                     SelectionChanged="LstGameVersions_SelectionChanged"
+                                     Background="Transparent" BorderThickness="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource ModListItem}"/>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Id}" FontSize="15" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource ThemePrimaryText}"/>
+                                                <TextBlock Text="{Binding TimeDisplay}" FontSize="11"
+                                                           Foreground="{DynamicResource ThemeTertiaryText}"
+                                                           Margin="0 2 0 0"/>
+                                            </StackPanel>
+                                            <Border Grid.Column="1" CornerRadius="10" Padding="8 3"
+                                                    VerticalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsRelease}" Value="True">
+                                                                <Setter Property="Background" Value="#34c759"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsSnapshot}" Value="True">
+                                                                <Setter Property="Background" Value="#ff9500"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="{Binding TypeLabel}" FontSize="10">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeSecondaryText}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsRelease}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#ffffff"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding IsSnapshot}" Value="True">
+                                                                    <Setter Property="Foreground" Value="#ffffff"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="20"
+                                    Padding="22" Margin="0 0 0 14">
+                                <StackPanel>
+                                    <TextBlock x:Name="txtSelectedGameVersion" Text="选择一个版本开始安装"
+                                               FontSize="22" FontWeight="Bold"
+                                               Foreground="{DynamicResource ThemePrimaryText}"/>
+                                    <TextBlock x:Name="txtSelectedGameMeta" Text="左侧列表来自 BMCLAPI 镜像"
+                                               FontSize="13" Foreground="{DynamicResource ThemeSecondaryText}"
+                                               Margin="0 6 0 0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="20"
+                                    Padding="22" Margin="0 0 0 14">
+                                <StackPanel>
+                                    <TextBlock Text="加载器" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}"/>
+                                    <TextBlock Text="下载前选择要附加的加载器，原版可直接安装"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               Margin="0 4 0 12"/>
+                                    <WrapPanel x:Name="panelLoaderButtons">
+                                        <Button x:Name="btnLoaderVanilla" Content="原版" Tag="Vanilla"
+                                                Click="LoaderKind_Click" Style="{StaticResource SecondaryButton}"
+                                                Margin="0 0 8 8"/>
+                                        <Button x:Name="btnLoaderForge" Content="Forge" Tag="Forge"
+                                                Click="LoaderKind_Click" Style="{StaticResource SecondaryButton}"
+                                                Margin="0 0 8 8"/>
+                                        <Button x:Name="btnLoaderFabric" Content="Fabric" Tag="Fabric"
+                                                Click="LoaderKind_Click" Style="{StaticResource SecondaryButton}"
+                                                Margin="0 0 8 8"/>
+                                        <Button x:Name="btnLoaderNeoForge" Content="NeoForge" Tag="NeoForge"
+                                                Click="LoaderKind_Click" Style="{StaticResource SecondaryButton}"
+                                                Margin="0 0 8 8"/>
+                                        <Button x:Name="btnLoaderOptiFine" Content="OptiFine" Tag="OptiFine"
+                                                Click="LoaderKind_Click" Style="{StaticResource SecondaryButton}"
+                                                Margin="0 0 8 8"/>
+                                    </WrapPanel>
+                                    <ComboBox x:Name="cbbLoaderVersion"
+                                              Style="{StaticResource ModernComboBox}"
+                                              Height="40" Margin="0 4 0 0"
+                                              DisplayMemberPath="Display"/>
+                                    <TextBlock x:Name="txtLoaderHint"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               TextWrapping="Wrap" Margin="0 8 0 0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="20"
+                                    Padding="22" Margin="0 0 0 14">
+                                <StackPanel>
+                                    <TextBlock Text="安装方式" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}"/>
+                                    <TextBlock Text="按你现有的启动器目录选择，不必整包重装"
+                                               FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                               Margin="0 4 0 12"/>
+
+                                    <Button x:Name="btnModeCore" Tag="CoreOnly"
+                                            Click="InstallMode_Click" Style="{StaticResource InstallModeButton}"
+                                            Margin="0 0 0 8">
+                                        <StackPanel>
+                                            <TextBlock Text="仅下载核心" FontSize="14"/>
+                                            <TextBlock Text="只要 client.jar 和版本 JSON，适合自己组装"
+                                                       FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                                       Margin="0 2 0 0"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="btnModeVersions" Tag="VersionsFolder"
+                                            Click="InstallMode_Click" Style="{StaticResource InstallModeButton}"
+                                            Margin="0 0 0 8">
+                                        <StackPanel>
+                                            <TextBlock Text="安装到 versions 文件夹" FontSize="14"/>
+                                            <TextBlock Text="选 .minecraft 或其中的 versions，给现有启动器补版本"
+                                                       FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                                       Margin="0 2 0 0"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="btnModeCustom" Tag="CustomDirectory"
+                                            Click="InstallMode_Click" Style="{StaticResource InstallModeButton}">
+                                        <StackPanel>
+                                            <TextBlock Text="安装到空白目录" FontSize="14"/>
+                                            <TextBlock Text="新建一份完整 .minecraft 结构，含 libraries 和 assets"
+                                                       FontSize="12" Foreground="{DynamicResource ThemeTertiaryText}"
+                                                       Margin="0 2 0 0"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Background="{DynamicResource ThemeCardBackground}" CornerRadius="20"
+                                    Padding="22" Margin="0 0 0 14">
+                                <StackPanel>
+                                    <TextBlock Text="安装位置" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource ThemePrimaryText}" Margin="0 0 0 12"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="txtMinecraftPath"
+                                                 Style="{StaticResource ModernTextBox}"
+                                                 IsReadOnly="True" Height="40"
+                                                 FontSize="13" FontWeight="Normal"
+                                                 Margin="0 0 10 0"/>
+                                        <Button Grid.Column="1" Content="浏览..."
+                                                Style="{StaticResource SecondaryButton}"
+                                                Click="BtnBrowseMinecraftPath_Click"/>
+                                    </Grid>
+                                    <TextBox x:Name="txtCustomVersionName"
+                                             Style="{StaticResource ModernTextBox}"
+                                             Height="40" FontSize="13" FontWeight="Normal"
+                                             Tag="自定义版本名（可留空）"
+                                             Margin="0 12 0 0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Button x:Name="btnInstallMinecraft" Content="开始安装"
+                                    Style="{StaticResource PrimaryButton}"
+                                    Height="48" Width="180" HorizontalAlignment="Left"
+                                    Click="BtnInstallMinecraft_Click"/>
+                            <TextBlock x:Name="txtGameStatus" FontSize="12"
+                                       Foreground="{DynamicResource ThemeTertiaryText}"
+                                       TextWrapping="Wrap" Margin="0 12 0 0"/>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
 
                 <!-- 设置面板 -->

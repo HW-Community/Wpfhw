@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     };
 
     private readonly HttpClient _httpClient;
+    private readonly HttpClient _mcHttpClient;
     private readonly AppSettings _settings;
     private ModSearchHit? _selectedMod;
     private List<ModVersion> _currentVersions = new();
@@ -62,9 +63,22 @@ public partial class MainWindow : Window
     private int _downloadIdCounter;
 
     // 设置面板返回时要回到的面板
-    private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading }
+    private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading, Game }
     private MainPanel _lastPanel = MainPanel.Search;
     private bool _suppressSettingsSave;
+
+    private readonly MinecraftInstaller _mcInstaller;
+    private List<McVersionInfo> _allMcVersions = new();
+    private McVersionInfo? _selectedMcVersion;
+    private McLoaderKind _selectedLoader = McLoaderKind.Vanilla;
+    private McInstallMode _selectedInstallMode = McInstallMode.VersionsFolder;
+    private string _minecraftPath = "";
+    private bool _gameFilterRelease = true;
+    private bool _gameFilterSnapshot;
+    private bool _gameFilterLegacy;
+    private bool _gameListLoaded;
+    private CancellationTokenSource? _loaderListCts;
+    private CancellationTokenSource? _mcInstallCts;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -88,14 +102,24 @@ public partial class MainWindow : Window
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(15);
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "ModDownloader/1.0 (haodi0302@qq.com; Windows)");
+            "HW-Community/Wpfhw (haodi0302@qq.com; Windows)");
+
+        _mcHttpClient = new HttpClient();
+        _mcHttpClient.Timeout = TimeSpan.FromMinutes(10);
+        _mcHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "HW-Community/Wpfhw (haodi0302@qq.com; Windows)");
+
+        _mcInstaller = new MinecraftInstaller(_mcHttpClient);
 
         _settings = AppSettings.Load();
         _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
+            || _settings.LastProjectType == "game"
             ? _settings.LastProjectType
             : "mod";
         _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
             ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        _minecraftPath = ResolveExistingDirectory(_settings.MinecraftPath)
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
 
         if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
         if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
@@ -110,7 +134,13 @@ public partial class MainWindow : Window
         UpdateSearchPlaceholder();
         ApplyTheme(_settings.ThemeMode);
         ApplyDownloadOptionsToUi();
+        txtMinecraftPath.Text = _minecraftPath;
+        HighlightLoaderButton();
+        HighlightInstallModeButton();
+        HighlightGameFilters();
         SaveSettings();
+        if (_currentProjectType == "game")
+            ShowGamePanel();
 
         _downloadCts = new CancellationTokenSource();
 
@@ -121,7 +151,12 @@ public partial class MainWindow : Window
             _downloadCts?.Dispose();
             _searchCts?.Cancel();
             _searchCts?.Dispose();
+            _loaderListCts?.Cancel();
+            _loaderListCts?.Dispose();
+            _mcInstallCts?.Cancel();
+            _mcInstallCts?.Dispose();
             _httpClient.Dispose();
+            _mcHttpClient.Dispose();
         };
     }
 
@@ -131,12 +166,14 @@ public partial class MainWindow : Window
         "shader" => navShader,
         "datapack" => navData,
         "modpack" => navPack,
+        "game" => navGame,
         _ => navMod
     };
 
     private void SaveSettings()
     {
         _settings.DownloadPath = _downloadPath;
+        _settings.MinecraftPath = _minecraftPath;
         _settings.LastProjectType = _currentProjectType;
         _settings.WindowWidth = Width;
         _settings.WindowHeight = Height;
@@ -323,12 +360,14 @@ public partial class MainWindow : Window
         if (panelVersionDetail.Visibility == Visibility.Visible) _lastPanel = MainPanel.VersionDetail;
         else if (panelDownloadConfirm.Visibility == Visibility.Visible) _lastPanel = MainPanel.DownloadConfirm;
         else if (panelDownloading.Visibility == Visibility.Visible) _lastPanel = MainPanel.Downloading;
+        else if (panelGame.Visibility == Visibility.Visible) _lastPanel = MainPanel.Game;
         else _lastPanel = MainPanel.Search;
 
         panelSearch.Visibility = Visibility.Collapsed;
         panelVersionDetail.Visibility = Visibility.Collapsed;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
         panelDownloading.Visibility = Visibility.Collapsed;
+        panelGame.Visibility = Visibility.Collapsed;
         panelSettings.Visibility = Visibility.Visible;
 
         UpdateThemeButtons();
@@ -348,6 +387,9 @@ public partial class MainWindow : Window
                 break;
             case MainPanel.Downloading:
                 panelDownloading.Visibility = Visibility.Visible;
+                break;
+            case MainPanel.Game:
+                panelGame.Visibility = Visibility.Visible;
                 break;
             default:
                 panelSearch.Visibility = Visibility.Visible;
@@ -429,6 +471,14 @@ public partial class MainWindow : Window
 
         _currentProjectType = btn.Tag?.ToString() ?? "mod";
         UpdateNavStyle(btn);
+
+        if (_currentProjectType == "game")
+        {
+            ShowGamePanel();
+            return;
+        }
+
+        HideGamePanel();
         UpdateLoaderVisibility();
         UpdateSearchPlaceholder();
 
@@ -855,6 +905,7 @@ public partial class MainWindow : Window
         panelVersionDetail.Visibility = Visibility.Visible;
         panelDownloadConfirm.Visibility = Visibility.Collapsed;
         panelDownloading.Visibility = Visibility.Collapsed;
+        panelGame.Visibility = Visibility.Collapsed;
 
         panelVersionDetail.DataContext = new { SelectedMod = modHit };
         btnOpenExternal.Content = "访问 Modrinth";
@@ -939,6 +990,7 @@ public partial class MainWindow : Window
     {
         panelVersionDetail.Visibility = Visibility.Collapsed;
         panelSearch.Visibility = Visibility.Visible;
+        panelGame.Visibility = Visibility.Collapsed;
         _currentVersions.Clear();
         itemsVersionGroups.ItemsSource = null;
         lstModResult.SelectedIndex = -1;
@@ -1223,6 +1275,7 @@ public partial class MainWindow : Window
                     panelSearch.Visibility = Visibility.Collapsed;
                     panelDownloadConfirm.Visibility = Visibility.Collapsed;
                     panelSettings.Visibility = Visibility.Collapsed;
+                    panelGame.Visibility = Visibility.Collapsed;
                     panelDownloading.Visibility = Visibility.Visible;
 
                     txtDownloadingFile.Text = displayName;
@@ -1346,7 +1399,8 @@ public partial class MainWindow : Window
                         _panelOwnerId = -1;
                     }
 
-                    if (panelSettings.Visibility != Visibility.Visible)
+                    if (panelSettings.Visibility != Visibility.Visible
+                        && panelGame.Visibility != Visibility.Visible)
                     {
                         panelDownloading.Visibility = Visibility.Collapsed;
                         panelVersionDetail.Visibility = Visibility.Visible;
@@ -1374,6 +1428,354 @@ public partial class MainWindow : Window
         string SaveDir,
         bool OverwriteExisting,
         bool OpenFolderAfterDownload);
+
+    #endregion
+
+    #region ========== Minecraft 游戏安装 ==========
+
+    private void ShowGamePanel()
+    {
+        panelSearch.Visibility = Visibility.Collapsed;
+        panelVersionDetail.Visibility = Visibility.Collapsed;
+        panelDownloadConfirm.Visibility = Visibility.Collapsed;
+        panelDownloading.Visibility = Visibility.Collapsed;
+        panelSettings.Visibility = Visibility.Collapsed;
+        panelGame.Visibility = Visibility.Visible;
+        txtMinecraftPath.Text = _minecraftPath;
+        if (!_gameListLoaded)
+            _ = LoadMinecraftVersionsAsync();
+    }
+
+    private void HideGamePanel()
+    {
+        panelGame.Visibility = Visibility.Collapsed;
+        panelSearch.Visibility = Visibility.Visible;
+    }
+
+    private async Task LoadMinecraftVersionsAsync()
+    {
+        txtGameStatus.Text = "正在从 BMCLAPI 拉取版本列表...";
+        try
+        {
+            var manifest = await _mcInstaller.Api.GetManifestAsync(CancellationToken.None);
+            _allMcVersions = manifest.Versions;
+            _gameListLoaded = true;
+            RefreshGameVersionList();
+            txtGameSourceHint.Text = $"BMCLAPI · 共 {_allMcVersions.Count} 个版本";
+            txtGameStatus.Text = string.IsNullOrEmpty(manifest.Latest.Release)
+                ? "版本列表已就绪"
+                : $"最新正式版 {manifest.Latest.Release}";
+        }
+        catch (Exception ex)
+        {
+            txtGameStatus.Text = $"版本列表加载失败：{ex.Message}";
+        }
+    }
+
+    private void RefreshGameVersionList()
+    {
+        string keyword = txtGameSearch.Text.Trim();
+        var filtered = _allMcVersions.Where(v =>
+        {
+            bool typeOk = (v.IsRelease && _gameFilterRelease)
+                          || (v.IsSnapshot && _gameFilterSnapshot)
+                          || (v.IsLegacy && _gameFilterLegacy);
+            if (!typeOk) return false;
+            return string.IsNullOrEmpty(keyword)
+                   || v.Id.Contains(keyword, StringComparison.OrdinalIgnoreCase);
+        }).ToList();
+
+        lstGameVersions.ItemsSource = filtered;
+        if (_selectedMcVersion != null)
+        {
+            var match = filtered.FirstOrDefault(v => v.Id == _selectedMcVersion.Id);
+            if (match != null)
+                lstGameVersions.SelectedItem = match;
+        }
+    }
+
+    private void TxtGameSearch_TextChanged(object sender, TextChangedEventArgs e)
+        => RefreshGameVersionList();
+
+    private void GameFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        switch (btn.Tag?.ToString())
+        {
+            case "release":
+                _gameFilterRelease = !_gameFilterRelease;
+                if (!_gameFilterRelease && !_gameFilterSnapshot && !_gameFilterLegacy)
+                    _gameFilterRelease = true;
+                break;
+            case "snapshot":
+                _gameFilterSnapshot = !_gameFilterSnapshot;
+                break;
+            case "old":
+                _gameFilterLegacy = !_gameFilterLegacy;
+                break;
+        }
+        if (!_gameFilterRelease && !_gameFilterSnapshot && !_gameFilterLegacy)
+            _gameFilterRelease = true;
+        HighlightGameFilters();
+        RefreshGameVersionList();
+    }
+
+    private void HighlightGameFilters()
+    {
+        SetSegmentButton(btnGameFilterRelease, _gameFilterRelease);
+        SetSegmentButton(btnGameFilterSnapshot, _gameFilterSnapshot);
+        SetSegmentButton(btnGameFilterLegacy, _gameFilterLegacy);
+    }
+
+    private void SetSegmentButton(Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.SetResourceReference(Control.BackgroundProperty, "ThemeAccent");
+            btn.Foreground = Brushes.White;
+            btn.FontWeight = FontWeights.SemiBold;
+        }
+        else
+        {
+            btn.SetResourceReference(Control.BackgroundProperty, "ThemeCardBackground");
+            btn.SetResourceReference(Control.ForegroundProperty, "ThemePrimaryText");
+            btn.FontWeight = FontWeights.Normal;
+        }
+    }
+
+    private void LstGameVersions_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (lstGameVersions.SelectedItem is not McVersionInfo version) return;
+        _selectedMcVersion = version;
+        txtSelectedGameVersion.Text = version.Id;
+        txtSelectedGameMeta.Text = $"{version.TypeLabel}  ·  {version.TimeDisplay}  ·  BMCLAPI";
+        txtCustomVersionName.Text = "";
+        _ = LoadLoaderVersionsAsync();
+    }
+
+    private void LoaderKind_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        _selectedLoader = btn.Tag?.ToString() switch
+        {
+            "Forge" => McLoaderKind.Forge,
+            "Fabric" => McLoaderKind.Fabric,
+            "NeoForge" => McLoaderKind.NeoForge,
+            "OptiFine" => McLoaderKind.OptiFine,
+            _ => McLoaderKind.Vanilla
+        };
+        HighlightLoaderButton();
+        _ = LoadLoaderVersionsAsync();
+    }
+
+    private void HighlightLoaderButton()
+    {
+        SetSegmentButton(btnLoaderVanilla, _selectedLoader == McLoaderKind.Vanilla);
+        SetSegmentButton(btnLoaderForge, _selectedLoader == McLoaderKind.Forge);
+        SetSegmentButton(btnLoaderFabric, _selectedLoader == McLoaderKind.Fabric);
+        SetSegmentButton(btnLoaderNeoForge, _selectedLoader == McLoaderKind.NeoForge);
+        SetSegmentButton(btnLoaderOptiFine, _selectedLoader == McLoaderKind.OptiFine);
+    }
+
+    private async Task LoadLoaderVersionsAsync()
+    {
+        cbbLoaderVersion.ItemsSource = null;
+        cbbLoaderVersion.Visibility = _selectedLoader == McLoaderKind.Vanilla
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+
+        if (_selectedMcVersion == null)
+        {
+            txtLoaderHint.Text = "先在左侧选择 Minecraft 版本";
+            return;
+        }
+
+        if (_selectedLoader == McLoaderKind.Vanilla)
+        {
+            txtLoaderHint.Text = "将安装原版客户端，不附加加载器";
+            return;
+        }
+
+        _loaderListCts?.Cancel();
+        _loaderListCts?.Dispose();
+        _loaderListCts = new CancellationTokenSource();
+        var ct = _loaderListCts.Token;
+        string mcId = _selectedMcVersion.Id;
+        txtLoaderHint.Text = "正在查询可用加载器版本...";
+
+        try
+        {
+            List<LoaderOption> options = _selectedLoader switch
+            {
+                McLoaderKind.Forge => (await _mcInstaller.Api.GetForgeAsync(mcId, ct))
+                    .OrderByDescending(x => x.Build)
+                    .Select(x => new LoaderOption(x.Version, "", x.Display))
+                    .ToList(),
+                McLoaderKind.Fabric => (await _mcInstaller.Api.GetFabricAsync(mcId, ct))
+                    .Select(x => new LoaderOption(x.Loader.Version, "", x.Loader.Display))
+                    .ToList(),
+                McLoaderKind.NeoForge => (await _mcInstaller.Api.GetNeoForgeAsync(mcId, ct))
+                    .OrderByDescending(x => x.Version, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => new LoaderOption(x.Version, "", x.Display))
+                    .ToList(),
+                McLoaderKind.OptiFine => (await _mcInstaller.Api.GetOptiFineAsync(mcId, ct))
+                    .OrderBy(x => x.IsPreview)
+                    .ThenByDescending(x => x.Patch)
+                    .Select(x => new LoaderOption(x.Patch, x.Type, x.Display))
+                    .ToList(),
+                _ => new List<LoaderOption>()
+            };
+
+            if (ct.IsCancellationRequested) return;
+            cbbLoaderVersion.ItemsSource = options;
+            if (options.Count > 0)
+            {
+                cbbLoaderVersion.SelectedIndex = 0;
+                txtLoaderHint.Text = $"该版本共 {options.Count} 个加载器构建";
+            }
+            else
+            {
+                txtLoaderHint.Text = "该 Minecraft 版本没有对应加载器";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            txtLoaderHint.Text = $"加载器列表获取失败：{ex.Message}";
+        }
+    }
+
+    private void InstallMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn) return;
+        _selectedInstallMode = btn.Tag?.ToString() switch
+        {
+            "CoreOnly" => McInstallMode.CoreOnly,
+            "CustomDirectory" => McInstallMode.CustomDirectory,
+            _ => McInstallMode.VersionsFolder
+        };
+        HighlightInstallModeButton();
+    }
+
+    private void HighlightInstallModeButton()
+    {
+        SetSegmentButton(btnModeCore, _selectedInstallMode == McInstallMode.CoreOnly);
+        SetSegmentButton(btnModeVersions, _selectedInstallMode == McInstallMode.VersionsFolder);
+        SetSegmentButton(btnModeCustom, _selectedInstallMode == McInstallMode.CustomDirectory);
+    }
+
+    private void BtnBrowseMinecraftPath_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = _selectedInstallMode switch
+            {
+                McInstallMode.CoreOnly => "选择核心保存文件夹",
+                McInstallMode.CustomDirectory => "选择空白安装目录",
+                _ => "选择 .minecraft 或 versions 文件夹"
+            },
+            FolderName = _minecraftPath
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            _minecraftPath = dialog.FolderName;
+            txtMinecraftPath.Text = _minecraftPath;
+            SaveSettings();
+        }
+    }
+
+    private async void BtnInstallMinecraft_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedMcVersion == null)
+        {
+            txtGameStatus.Text = "请先选择一个 Minecraft 版本";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_minecraftPath))
+        {
+            txtGameStatus.Text = "请选择安装目录";
+            return;
+        }
+
+        string loaderVersion = "";
+        string loaderExtra = "";
+        if (_selectedLoader != McLoaderKind.Vanilla)
+        {
+            if (cbbLoaderVersion.SelectedItem is not LoaderOption option
+                || string.IsNullOrWhiteSpace(option.Value))
+            {
+                txtGameStatus.Text = "请选择加载器版本";
+                return;
+            }
+            loaderVersion = option.Value;
+            loaderExtra = option.Extra;
+        }
+
+        var request = new MinecraftInstallRequest
+        {
+            GameVersion = _selectedMcVersion,
+            Loader = _selectedLoader,
+            LoaderVersion = loaderVersion,
+            LoaderExtra = loaderExtra,
+            Mode = _selectedInstallMode,
+            TargetPath = _minecraftPath,
+            VersionName = txtCustomVersionName.Text.Trim(),
+            MaxConcurrency = _maxDownloadThreads,
+            OpenFolderWhenDone = _settings.OpenFolderAfterDownload
+        };
+
+        _mcInstallCts?.Cancel();
+        _mcInstallCts?.Dispose();
+        _mcInstallCts = new CancellationTokenSource();
+        btnInstallMinecraft.IsEnabled = false;
+        panelGame.Visibility = Visibility.Collapsed;
+        panelDownloading.Visibility = Visibility.Visible;
+        txtDownloadingFile.Text = $"准备安装 {MinecraftInstaller.BuildDefaultVersionName(request)}";
+        progressBarFill.Width = 0;
+        txtDownloadPercent.Text = "0%";
+
+        var progress = new Progress<MinecraftInstallProgress>(p =>
+        {
+            txtDownloadingFile.Text = p.Message;
+            txtDownloadPercent.Text = $"{p.Percent:F0}%";
+            UpdateProgressBar(p.Percent);
+        });
+
+        try
+        {
+            await _mcInstaller.InstallAsync(request, progress, _mcInstallCts.Token);
+            txtDownloadingFile.Text = "安装完成";
+            txtDownloadPercent.Text = "100%";
+            UpdateProgressBar(100);
+            if (request.OpenFolderWhenDone)
+            {
+                string reveal = Directory.EnumerateFiles(_minecraftPath, "*", SearchOption.TopDirectoryOnly)
+                    .FirstOrDefault() ?? _minecraftPath;
+                OpenContainingFolder(reveal);
+            }
+            await Task.Delay(1200);
+        }
+        catch (OperationCanceledException)
+        {
+            txtDownloadingFile.Text = "安装已取消";
+        }
+        catch (Exception ex)
+        {
+            txtDownloadingFile.Text = $"安装失败：{ex.Message}";
+            txtGameStatus.Text = $"安装失败：{ex.Message}";
+            await Task.Delay(1800);
+        }
+        finally
+        {
+            btnInstallMinecraft.IsEnabled = true;
+            panelDownloading.Visibility = Visibility.Collapsed;
+            panelGame.Visibility = Visibility.Visible;
+        }
+    }
 
     #endregion
 }
