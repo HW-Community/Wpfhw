@@ -107,14 +107,30 @@ public sealed class BmclApiClient
     public static string MirrorUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return url;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out _)) return url;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var source)) return url;
+        if (!string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(source.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase))
+            return url;
 
         foreach (var (from, to) in MirrorPrefixes)
         {
-            if (!url.StartsWith(from, StringComparison.OrdinalIgnoreCase)) continue;
-            string result = to + url[from.Length..];
-            if (result.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
-                && Uri.TryCreate(result, UriKind.Absolute, out var mirrored)
+            if (!Uri.TryCreate(from, UriKind.Absolute, out var fromUri)) continue;
+            if (!string.Equals(source.Host, fromUri.Host, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.Equals(source.Scheme, fromUri.Scheme, StringComparison.OrdinalIgnoreCase)) continue;
+
+            string fromPath = fromUri.AbsolutePath.TrimEnd('/');
+            string sourcePath = source.AbsolutePath;
+            if (fromPath.Length > 0)
+            {
+                if (!sourcePath.StartsWith(fromPath, StringComparison.OrdinalIgnoreCase)) continue;
+                if (sourcePath.Length > fromPath.Length && sourcePath[fromPath.Length] != '/') continue;
+            }
+
+            string remainder = fromPath.Length == 0
+                ? sourcePath
+                : sourcePath[fromPath.Length..];
+            string result = to + remainder + source.Query;
+            if (Uri.TryCreate(result, UriKind.Absolute, out var mirrored)
                 && Uri.TryCreate(BaseUrl, UriKind.Absolute, out var baseUri)
                 && string.Equals(mirrored.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase))
                 return result;
@@ -137,6 +153,11 @@ public sealed class BmclApiClient
                     end++;
                 string original = text[index..end];
                 string mirrored = MirrorUrl(original);
+                if (string.Equals(mirrored, original, StringComparison.Ordinal))
+                {
+                    index = Math.Max(end, index + 1);
+                    continue;
+                }
                 text = string.Concat(text.AsSpan(0, index), mirrored, text.AsSpan(end));
                 index += mirrored.Length;
             }
