@@ -76,8 +76,8 @@ public partial class MainWindow : Window
     private bool _gameFilterRelease = true;
     private bool _gameFilterSnapshot;
     private bool _gameFilterLegacy;
-    private bool _gameListLoaded;
-    private bool _gameListLoading;
+    private enum GameListState { Idle, Loading, Loaded }
+    private GameListState _gameListState = GameListState.Idle;
     private CancellationTokenSource? _loaderListCts;
     private CancellationTokenSource? _mcInstallCts;
 
@@ -88,7 +88,9 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ModTranslation> _pendingByEnglish = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> LoaderTypes = new() { "mod", "modpack" };
-    private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack", "game" };
+    private const string NavGame = "game";
+    private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack" };
+    private static readonly HashSet<string> NavTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack", NavGame };
     private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
@@ -105,20 +107,21 @@ public partial class MainWindow : Window
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(BmclApiClient.UserAgent);
 
         _mcHttpClient = new HttpClient();
-        _mcHttpClient.Timeout = Timeout.InfiniteTimeSpan;
+        _mcHttpClient.Timeout = TimeSpan.FromMinutes(5);
         _mcHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(BmclApiClient.UserAgent);
 
         _mcInstaller = new MinecraftInstaller(_mcHttpClient);
 
         _settings = AppSettings.Load();
-        _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
+        _currentProjectType = NavTypes.Contains(_settings.LastProjectType)
             ? _settings.LastProjectType
             : "mod";
         _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
             ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-        _minecraftPath = ResolveExistingDirectory(_settings.MinecraftPath)
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
-        Directory.CreateDirectory(_minecraftPath);
+        _minecraftPath = ResolveWritableDirectory(_settings.MinecraftPath)
+            ?? ResolveWritableDirectory(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft"))
+            ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
         if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
         if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
@@ -138,7 +141,7 @@ public partial class MainWindow : Window
         HighlightInstallModeButton();
         HighlightGameFilters();
         SaveSettings();
-        if (_currentProjectType == "game")
+        if (_currentProjectType == NavGame)
             ShowGamePanel();
 
         _downloadCts = new CancellationTokenSource();
@@ -165,7 +168,7 @@ public partial class MainWindow : Window
         "shader" => navShader,
         "datapack" => navData,
         "modpack" => navPack,
-        "game" => navGame,
+        NavGame => navGame,
         _ => navMod
     };
 
@@ -202,6 +205,34 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
         return Directory.Exists(path) ? path : null;
+    }
+
+    private static string? ResolveWritableDirectory(string? path)
+    {
+        string? existing = ResolveExistingDirectory(path);
+        string candidate = existing
+            ?? (string.IsNullOrWhiteSpace(path)
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft")
+                : path);
+        try
+        {
+            Directory.CreateDirectory(candidate);
+            return candidate;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            try
+            {
+                string fallback = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
+                Directory.CreateDirectory(fallback);
+                return fallback;
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 
     private static string GetDesktopDirectory()
@@ -471,7 +502,7 @@ public partial class MainWindow : Window
         _currentProjectType = btn.Tag?.ToString() ?? "mod";
         UpdateNavStyle(btn);
 
-        if (_currentProjectType == "game")
+        if (_currentProjectType == NavGame)
         {
             ShowGamePanel();
             return;
@@ -1441,7 +1472,7 @@ public partial class MainWindow : Window
         panelSettings.Visibility = Visibility.Collapsed;
         panelGame.Visibility = Visibility.Visible;
         txtMinecraftPath.Text = _minecraftPath;
-        if (!_gameListLoaded && !_gameListLoading)
+        if (_gameListState == GameListState.Idle)
             _ = LoadMinecraftVersionsAsync();
     }
 
@@ -1453,14 +1484,14 @@ public partial class MainWindow : Window
 
     private async Task LoadMinecraftVersionsAsync()
     {
-        if (_gameListLoading) return;
-        _gameListLoading = true;
+        if (_gameListState == GameListState.Loading) return;
+        _gameListState = GameListState.Loading;
         txtGameStatus.Text = "正在从 BMCLAPI 拉取版本列表...";
         try
         {
             var manifest = await _mcInstaller.Api.GetManifestAsync(CancellationToken.None);
             _allMcVersions = manifest.Versions;
-            _gameListLoaded = true;
+            _gameListState = GameListState.Loaded;
             RefreshGameVersionList();
             txtGameSourceHint.Text = $"BMCLAPI · 共 {_allMcVersions.Count} 个版本";
             txtGameStatus.Text = string.IsNullOrEmpty(manifest.Latest.Release)
@@ -1469,11 +1500,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            _gameListState = GameListState.Idle;
             txtGameStatus.Text = $"版本列表加载失败：{ex.GetBaseException().Message}";
-        }
-        finally
-        {
-            _gameListLoading = false;
         }
     }
 
@@ -1686,7 +1714,7 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() == true)
         {
-            _minecraftPath = dialog.FolderName;
+            _minecraftPath = ResolveWritableDirectory(dialog.FolderName) ?? dialog.FolderName;
             txtMinecraftPath.Text = _minecraftPath;
             SaveSettings();
         }

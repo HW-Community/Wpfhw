@@ -47,7 +47,7 @@ public sealed class BmclApiClient
             }
             catch (Exception ex)
             {
-                lastError = ex;
+                lastError = lastError == null ? ex : new AggregateException(lastError, ex);
             }
         }
 
@@ -106,11 +106,16 @@ public sealed class BmclApiClient
     public static string MirrorUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return url;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out _)) return url;
 
         foreach (var (from, to) in MirrorPrefixes)
         {
-            if (url.StartsWith(from, StringComparison.OrdinalIgnoreCase))
-                return to + url[from.Length..];
+            if (!url.StartsWith(from, StringComparison.OrdinalIgnoreCase)) continue;
+            string result = to + url[from.Length..];
+            if (result.StartsWith(BaseUrl, StringComparison.OrdinalIgnoreCase)
+                && Uri.TryCreate(result, UriKind.Absolute, out var mirrored)
+                && string.Equals(mirrored.Host, "bmclapi2.bangbang93.com", StringComparison.OrdinalIgnoreCase))
+                return result;
         }
 
         return url;
@@ -120,7 +125,19 @@ public sealed class BmclApiClient
     {
         if (string.IsNullOrWhiteSpace(text)) return text;
         foreach (var (from, to) in MirrorPrefixes)
-            text = text.Replace(from, to, StringComparison.OrdinalIgnoreCase);
+        {
+            int index = 0;
+            while ((index = text.IndexOf(from, index, StringComparison.OrdinalIgnoreCase)) >= 0)
+            {
+                int end = index;
+                while (end < text.Length && !char.IsWhiteSpace(text[end]) && text[end] is not '"' and not '\'')
+                    end++;
+                string original = text[index..end];
+                string mirrored = MirrorUrl(original);
+                text = string.Concat(text.AsSpan(0, index), mirrored, text.AsSpan(end));
+                index += mirrored.Length;
+            }
+        }
         return text;
     }
 

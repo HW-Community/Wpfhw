@@ -511,9 +511,23 @@ public sealed class MinecraftInstaller
                 if (response == null)
                     throw new InvalidOperationException("下载未返回响应");
                 response.EnsureSuccessStatusCode();
+                long? contentLength = response.Content.Headers.ContentLength;
+                const long maxBytes = 512L * 1024 * 1024;
+                if (contentLength is > maxBytes)
+                    throw new InvalidOperationException($"文件过大：{Path.GetFileName(destPath)}");
+
                 await using var remote = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
                 await using var local = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                await remote.CopyToAsync(local, timeoutCts.Token);
+                byte[] buffer = new byte[81920];
+                long written = 0;
+                int read;
+                while ((read = await remote.ReadAsync(buffer, timeoutCts.Token)) > 0)
+                {
+                    written += read;
+                    if (written > maxBytes)
+                        throw new InvalidOperationException($"文件过大：{Path.GetFileName(destPath)}");
+                    await local.WriteAsync(buffer.AsMemory(0, read), timeoutCts.Token);
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(sha1) && !Sha1Matches(temp, sha1))
