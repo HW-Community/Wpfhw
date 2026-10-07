@@ -27,6 +27,7 @@ public class AppSettings
     }
 
     public string DownloadPath { get; set; } = "";
+    public string MinecraftPath { get; set; } = "";
     public string LastProjectType { get; set; } = "mod";
     public double WindowWidth { get; set; } = 1080;
     public double WindowHeight { get; set; } = 720;
