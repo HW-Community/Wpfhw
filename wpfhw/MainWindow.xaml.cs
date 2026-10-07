@@ -77,6 +77,7 @@ public partial class MainWindow : Window
     private bool _gameFilterSnapshot;
     private bool _gameFilterLegacy;
     private bool _gameListLoaded;
+    private bool _gameListLoading;
     private CancellationTokenSource? _loaderListCts;
     private CancellationTokenSource? _mcInstallCts;
 
@@ -87,7 +88,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ModTranslation> _pendingByEnglish = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly HashSet<string> LoaderTypes = new() { "mod", "modpack" };
-    private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack" };
+    private static readonly HashSet<string> ProjectTypes = new() { "mod", "resourcepack", "shader", "datapack", "modpack", "game" };
     private static readonly HashSet<string> ReservedFileNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
@@ -101,25 +102,23 @@ public partial class MainWindow : Window
 
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(15);
-        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "HW-Community/Wpfhw (haodi0302@qq.com; Windows)");
+        _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(BmclApiClient.UserAgent);
 
         _mcHttpClient = new HttpClient();
-        _mcHttpClient.Timeout = TimeSpan.FromMinutes(10);
-        _mcHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "HW-Community/Wpfhw (haodi0302@qq.com; Windows)");
+        _mcHttpClient.Timeout = Timeout.InfiniteTimeSpan;
+        _mcHttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(BmclApiClient.UserAgent);
 
         _mcInstaller = new MinecraftInstaller(_mcHttpClient);
 
         _settings = AppSettings.Load();
         _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
-            || _settings.LastProjectType == "game"
             ? _settings.LastProjectType
             : "mod";
         _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
             ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
         _minecraftPath = ResolveExistingDirectory(_settings.MinecraftPath)
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), ".minecraft");
+        Directory.CreateDirectory(_minecraftPath);
 
         if (_settings.WindowWidth >= 640) Width = _settings.WindowWidth;
         if (_settings.WindowHeight >= 480) Height = _settings.WindowHeight;
@@ -1442,7 +1441,7 @@ public partial class MainWindow : Window
         panelSettings.Visibility = Visibility.Collapsed;
         panelGame.Visibility = Visibility.Visible;
         txtMinecraftPath.Text = _minecraftPath;
-        if (!_gameListLoaded)
+        if (!_gameListLoaded && !_gameListLoading)
             _ = LoadMinecraftVersionsAsync();
     }
 
@@ -1454,6 +1453,8 @@ public partial class MainWindow : Window
 
     private async Task LoadMinecraftVersionsAsync()
     {
+        if (_gameListLoading) return;
+        _gameListLoading = true;
         txtGameStatus.Text = "正在从 BMCLAPI 拉取版本列表...";
         try
         {
@@ -1468,7 +1469,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            txtGameStatus.Text = $"版本列表加载失败：{ex.Message}";
+            txtGameStatus.Text = $"版本列表加载失败：{ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            _gameListLoading = false;
         }
     }
 
@@ -1711,8 +1716,31 @@ public partial class MainWindow : Window
                 txtGameStatus.Text = "请选择加载器版本";
                 return;
             }
-            loaderVersion = option.Value;
-            loaderExtra = option.Extra;
+            try
+            {
+                loaderVersion = MinecraftInstaller.SanitizeVersionSegment(option.Value);
+                loaderExtra = string.IsNullOrWhiteSpace(option.Extra)
+                    ? ""
+                    : MinecraftInstaller.SanitizeVersionSegment(option.Extra);
+            }
+            catch (Exception ex)
+            {
+                txtGameStatus.Text = ex.Message;
+                return;
+            }
+        }
+
+        string versionName;
+        try
+        {
+            versionName = string.IsNullOrWhiteSpace(txtCustomVersionName.Text)
+                ? ""
+                : MinecraftInstaller.SanitizeVersionSegment(txtCustomVersionName.Text);
+        }
+        catch (Exception ex)
+        {
+            txtGameStatus.Text = ex.Message;
+            return;
         }
 
         var request = new MinecraftInstallRequest
@@ -1723,7 +1751,7 @@ public partial class MainWindow : Window
             LoaderExtra = loaderExtra,
             Mode = _selectedInstallMode,
             TargetPath = _minecraftPath,
-            VersionName = txtCustomVersionName.Text.Trim(),
+            VersionName = versionName,
             MaxConcurrency = _maxDownloadThreads,
             OpenFolderWhenDone = _settings.OpenFolderAfterDownload
         };
@@ -1765,8 +1793,8 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            txtDownloadingFile.Text = $"安装失败：{ex.Message}";
-            txtGameStatus.Text = $"安装失败：{ex.Message}";
+            txtDownloadingFile.Text = $"安装失败：{ex.GetBaseException().Message}";
+            txtGameStatus.Text = $"安装失败：{ex.GetBaseException().Message}";
             await Task.Delay(1800);
         }
         finally

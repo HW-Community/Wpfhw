@@ -870,35 +870,10 @@
                                                            Margin="0 2 0 0"/>
                                             </StackPanel>
                                             <Border Grid.Column="1" CornerRadius="10" Padding="8 3"
-                                                    VerticalAlignment="Center">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsRelease}" Value="True">
-                                                                <Setter Property="Background" Value="#34c759"/>
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding IsSnapshot}" Value="True">
-                                                                <Setter Property="Background" Value="#ff9500"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                                <TextBlock Text="{Binding TypeLabel}" FontSize="10">
-                                                    <TextBlock.Style>
-                                                        <Style TargetType="TextBlock">
-                                                            <Setter Property="Foreground" Value="{DynamicResource ThemeSecondaryText}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsRelease}" Value="True">
-                                                                    <Setter Property="Foreground" Value="#ffffff"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding IsSnapshot}" Value="True">
-                                                                    <Setter Property="Foreground" Value="#ffffff"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </TextBlock.Style>
-                                                </TextBlock>
+                                                    VerticalAlignment="Center"
+                                                    Background="{DynamicResource ThemeCardAltBackground}">
+                                                <TextBlock Text="{Binding TypeLabel}" FontSize="10"
+                                                           Foreground="{DynamicResource ThemeSecondaryText}"/>
                                             </Border>
                                         </Grid>
                                     </DataTemplate>

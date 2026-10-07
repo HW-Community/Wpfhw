@@ -7,6 +7,7 @@ namespace wpfhw;
 public sealed class BmclApiClient
 {
     public const string BaseUrl = "https://bmclapi2.bangbang93.com";
+    public const string UserAgent = "HW-Community/Wpfhw (https://github.com/HW-Community/Wpfhw; Windows)";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -26,6 +27,7 @@ public sealed class BmclApiClient
 
     public async Task<McVersionManifest> GetManifestAsync(CancellationToken ct)
     {
+        Exception? lastError = null;
         foreach (string path in new[]
                  {
                      "/mc/game/version_manifest_v2.json",
@@ -43,12 +45,13 @@ public sealed class BmclApiClient
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
+                lastError = ex;
             }
         }
 
-        throw new InvalidOperationException("无法从 BMCLAPI 获取版本列表");
+        throw new InvalidOperationException("无法从 BMCLAPI 获取版本列表", lastError);
     }
 
     public Task<string> GetVersionJsonAsync(string versionId, CancellationToken ct)
@@ -77,8 +80,8 @@ public sealed class BmclApiClient
     public static string GetFabricProfileUrl(string mcVersion, string loaderVersion)
         => $"{BaseUrl}/fabric-meta/v2/versions/loader/{Uri.EscapeDataString(mcVersion)}/{Uri.EscapeDataString(loaderVersion)}/profile/json";
 
-    public async Task<string> GetFabricProfileJsonAsync(string mcVersion, string loaderVersion, CancellationToken ct)
-        => await _http.GetStringAsync(GetFabricProfileUrl(mcVersion, loaderVersion), ct);
+    public Task<string> GetFabricProfileJsonAsync(string mcVersion, string loaderVersion, CancellationToken ct)
+        => _http.GetStringAsync(GetFabricProfileUrl(mcVersion, loaderVersion), ct);
 
     public async Task<List<NeoForgeBuild>> GetNeoForgeAsync(string mcVersion, CancellationToken ct)
     {
@@ -103,17 +106,37 @@ public sealed class BmclApiClient
     public static string MirrorUrl(string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return url;
-        return url
-            .Replace("https://piston-meta.mojang.com", BaseUrl, StringComparison.OrdinalIgnoreCase)
-            .Replace("https://piston-data.mojang.com", BaseUrl, StringComparison.OrdinalIgnoreCase)
-            .Replace("https://launchermeta.mojang.com", BaseUrl, StringComparison.OrdinalIgnoreCase)
-            .Replace("https://launcher.mojang.com", BaseUrl, StringComparison.OrdinalIgnoreCase)
-            .Replace("https://libraries.minecraft.net", BaseUrl + "/maven", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://resources.download.minecraft.net", BaseUrl + "/assets", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://maven.minecraftforge.net", BaseUrl + "/maven", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://maven.neoforged.net/releases", BaseUrl + "/maven", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://maven.neoforged.net", BaseUrl + "/maven", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://maven.fabricmc.net", BaseUrl + "/maven", StringComparison.OrdinalIgnoreCase)
-            .Replace("https://meta.fabricmc.net", BaseUrl + "/fabric-meta", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var (from, to) in MirrorPrefixes)
+        {
+            if (url.StartsWith(from, StringComparison.OrdinalIgnoreCase))
+                return to + url[from.Length..];
+        }
+
+        return url;
     }
+
+    public static string MirrorText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text;
+        foreach (var (from, to) in MirrorPrefixes)
+            text = text.Replace(from, to, StringComparison.OrdinalIgnoreCase);
+        return text;
+    }
+
+    private static readonly (string From, string To)[] MirrorPrefixes =
+    {
+        ("https://maven.neoforged.net/releases", BaseUrl + "/maven"),
+        ("https://maven.neoforged.net", BaseUrl + "/maven"),
+        ("https://maven.minecraftforge.net", BaseUrl + "/maven"),
+        ("https://files.minecraftforge.net/maven", BaseUrl + "/maven"),
+        ("https://maven.fabricmc.net", BaseUrl + "/maven"),
+        ("https://meta.fabricmc.net", BaseUrl + "/fabric-meta"),
+        ("https://libraries.minecraft.net", BaseUrl + "/maven"),
+        ("https://resources.download.minecraft.net", BaseUrl + "/assets"),
+        ("https://piston-meta.mojang.com", BaseUrl),
+        ("https://piston-data.mojang.com", BaseUrl),
+        ("https://launchermeta.mojang.com", BaseUrl),
+        ("https://launcher.mojang.com", BaseUrl)
+    };
 }

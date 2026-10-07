@@ -29,10 +29,13 @@ public sealed class MinecraftInstaller
             throw new InvalidOperationException("请选择安装目录");
 
         Directory.CreateDirectory(request.TargetPath);
-        string mcId = request.GameVersion.Id;
-        string versionName = string.IsNullOrWhiteSpace(request.VersionName)
-            ? BuildDefaultVersionName(request)
-            : request.VersionName.Trim();
+        string mcId = SanitizeVersionSegment(request.GameVersion.Id);
+        if (string.IsNullOrWhiteSpace(mcId))
+            throw new InvalidOperationException("游戏版本号无效");
+        string versionName = SanitizeVersionSegment(
+            string.IsNullOrWhiteSpace(request.VersionName)
+                ? BuildDefaultVersionName(request)
+                : request.VersionName);
 
         if (request.Mode == McInstallMode.CoreOnly)
         {
@@ -44,29 +47,30 @@ public sealed class MinecraftInstaller
         string versionsDir = Path.Combine(minecraftRoot, "versions");
         string librariesDir = Path.Combine(minecraftRoot, "libraries");
         string assetsDir = Path.Combine(minecraftRoot, "assets");
-        string versionDir = Path.Combine(versionsDir, versionName);
+        string versionDir = ConfinePath(versionsDir, versionName);
         Directory.CreateDirectory(versionDir);
         Directory.CreateDirectory(librariesDir);
         Directory.CreateDirectory(assetsDir);
 
         progress.Report(new MinecraftInstallProgress("正在获取版本清单...", 2));
         string vanillaJson = await _api.GetVersionJsonAsync(mcId, ct);
-        vanillaJson = BmclApiClient.MirrorUrl(vanillaJson);
+        vanillaJson = BmclApiClient.MirrorText(vanillaJson);
         var vanillaNode = JsonNode.Parse(vanillaJson) as JsonObject
             ?? throw new InvalidOperationException("版本 JSON 解析失败");
 
-        string vanillaJarPath = Path.Combine(versionsDir, mcId, $"{mcId}.jar");
+        string vanillaJarPath = Path.Combine(ConfinePath(versionsDir, mcId), $"{mcId}.jar");
         if (!string.Equals(versionName, mcId, StringComparison.OrdinalIgnoreCase))
-            Directory.CreateDirectory(Path.Combine(versionsDir, mcId));
+            Directory.CreateDirectory(ConfinePath(versionsDir, mcId));
 
         progress.Report(new MinecraftInstallProgress($"正在下载 {mcId} 核心...", 8));
         await DownloadFileAsync(
             BmclApiClient.GetClientJarUrl(mcId),
             vanillaJarPath,
             ReadSha1(vanillaNode["downloads"]?["client"]?["sha1"]),
+            requireHash: true,
             ct);
 
-        File.WriteAllText(Path.Combine(versionsDir, mcId, $"{mcId}.json"), vanillaJson);
+        File.WriteAllText(Path.Combine(ConfinePath(versionsDir, mcId), $"{mcId}.json"), vanillaJson);
 
         progress.Report(new MinecraftInstallProgress("正在下载依赖库...", 20));
         await DownloadLibrariesAsync(vanillaNode, librariesDir, request.MaxConcurrency, progress, 20, 55, ct);
@@ -109,16 +113,20 @@ public sealed class MinecraftInstaller
         IProgress<MinecraftInstallProgress> progress,
         CancellationToken ct)
     {
-        string mcId = request.GameVersion.Id;
+        string mcId = SanitizeVersionSegment(request.GameVersion.Id);
         string destDir = request.TargetPath;
         Directory.CreateDirectory(destDir);
 
+        progress.Report(new MinecraftInstallProgress("正在获取版本清单...", 6));
+        string json = BmclApiClient.MirrorText(await _api.GetVersionJsonAsync(mcId, ct));
+        var node = JsonNode.Parse(json) as JsonObject;
+        string? clientSha1 = ReadSha1(node?["downloads"]?["client"]?["sha1"]);
+
         progress.Report(new MinecraftInstallProgress("正在下载游戏核心...", 10));
         string jarPath = Path.Combine(destDir, $"{mcId}.jar");
-        await DownloadFileAsync(BmclApiClient.GetClientJarUrl(mcId), jarPath, null, ct);
+        await DownloadFileAsync(BmclApiClient.GetClientJarUrl(mcId), jarPath, clientSha1, requireHash: true, ct);
 
         progress.Report(new MinecraftInstallProgress("正在保存版本清单...", 55));
-        string json = BmclApiClient.MirrorUrl(await _api.GetVersionJsonAsync(mcId, ct));
         File.WriteAllText(Path.Combine(destDir, $"{mcId}.json"), json);
 
         if (request.Loader != McLoaderKind.Vanilla)
@@ -143,7 +151,7 @@ public sealed class MinecraftInstaller
         CancellationToken ct)
     {
         progress.Report(new MinecraftInstallProgress("正在获取 Fabric 配置...", 84));
-        string profileJson = BmclApiClient.MirrorUrl(
+        string profileJson = BmclApiClient.MirrorText(
             await _api.GetFabricProfileJsonAsync(request.GameVersion.Id, request.LoaderVersion, ct));
         var profile = JsonNode.Parse(profileJson) as JsonObject
             ?? throw new InvalidOperationException("Fabric 配置解析失败");
@@ -182,7 +190,7 @@ public sealed class MinecraftInstaller
             ? BmclApiClient.GetNeoForgeInstallerUrl(request.LoaderVersion)
             : BmclApiClient.GetForgeInstallerUrl(request.GameVersion.Id, request.LoaderVersion);
         string installerPath = Path.Combine(versionDir, $"{label.ToLowerInvariant()}-installer.jar");
-        await DownloadFileAsync(installerUrl, installerPath, null, ct);
+        await DownloadFileAsync(installerUrl, installerPath, null, requireHash: false, ct);
 
         bool extracted = TryExtractForgeVersionJson(installerPath, versionDir, versionName, librariesDir);
         CopyIfDifferent(vanillaJarPath, Path.Combine(versionDir, $"{versionName}.jar"));
@@ -218,7 +226,7 @@ public sealed class MinecraftInstaller
             ? $"OptiFine_{request.GameVersion.Id}.jar"
             : $"OptiFine_{request.GameVersion.Id}_{request.LoaderExtra}_{request.LoaderVersion}.jar";
         string optiPath = Path.Combine(versionDir, fileName);
-        await DownloadFileAsync(url, optiPath, null, ct);
+        await DownloadFileAsync(url, optiPath, null, requireHash: false, ct);
 
         CopyIfDifferent(vanillaJarPath, Path.Combine(versionDir, $"{versionName}.jar"));
         vanillaNode["id"] = versionName;
@@ -245,7 +253,7 @@ public sealed class MinecraftInstaller
                 string profile = await _api.GetFabricProfileJsonAsync(
                     request.GameVersion.Id, request.LoaderVersion, ct);
                 File.WriteAllText(Path.Combine(destDir, $"fabric-{request.GameVersion.Id}-{request.LoaderVersion}.json"),
-                    BmclApiClient.MirrorUrl(profile));
+                    BmclApiClient.MirrorText(profile));
                 return Path.Combine(destDir, $"fabric-{request.GameVersion.Id}-{request.LoaderVersion}.json");
             case McLoaderKind.OptiFine:
                 url = BmclApiClient.GetOptiFineUrl(request.GameVersion.Id, request.LoaderExtra, request.LoaderVersion);
@@ -256,7 +264,7 @@ public sealed class MinecraftInstaller
         }
 
         string path = Path.Combine(destDir, name);
-        await DownloadFileAsync(url, path, null, ct);
+        await DownloadFileAsync(url, path, null, requireHash: false, ct);
         return path;
     }
 
@@ -271,7 +279,7 @@ public sealed class MinecraftInstaller
 
             using var stream = versionEntry.Open();
             using var reader = new StreamReader(stream);
-            string json = BmclApiClient.MirrorUrl(reader.ReadToEnd());
+            string json = BmclApiClient.MirrorText(reader.ReadToEnd());
             var node = JsonNode.Parse(json) as JsonObject;
             if (node == null) return false;
             node["id"] = versionName;
@@ -357,7 +365,8 @@ public sealed class MinecraftInstaller
         string? rel = artifact["path"]?.ToString();
         if (string.IsNullOrWhiteSpace(rel) && !string.IsNullOrWhiteSpace(mavenName))
             rel = MavenToPath(mavenName);
-        if (string.IsNullOrWhiteSpace(rel)) return;
+        if (string.IsNullOrWhiteSpace(rel) || rel.Contains("..", StringComparison.Ordinal))
+            return;
 
         string url = artifact["url"]?.ToString() ?? "";
         url = string.IsNullOrWhiteSpace(url)
@@ -379,16 +388,17 @@ public sealed class MinecraftInstaller
         var index = versionNode["assetIndex"] as JsonObject;
         if (index == null) return;
 
-        string indexId = index["id"]?.ToString() ?? "legacy";
+        string indexId = SanitizeVersionSegment(index["id"]?.ToString() ?? "legacy");
         string indexUrl = BmclApiClient.MirrorUrl(index["url"]?.ToString() ?? "");
         if (string.IsNullOrWhiteSpace(indexUrl)) return;
+        string? indexSha1 = index["sha1"]?.ToString();
 
         string indexesDir = Path.Combine(assetsDir, "indexes");
         string objectsDir = Path.Combine(assetsDir, "objects");
         Directory.CreateDirectory(indexesDir);
         Directory.CreateDirectory(objectsDir);
         string indexPath = Path.Combine(indexesDir, $"{indexId}.json");
-        await DownloadFileAsync(indexUrl, indexPath, index["sha1"]?.ToString(), ct);
+        await DownloadFileAsync(indexUrl, indexPath, indexSha1, requireHash: !string.IsNullOrWhiteSpace(indexSha1), ct);
 
         string indexJson = File.ReadAllText(indexPath);
         var indexNode = JsonNode.Parse(indexJson) as JsonObject;
@@ -401,8 +411,9 @@ public sealed class MinecraftInstaller
             string? hash = obj["hash"]?.ToString();
             if (string.IsNullOrWhiteSpace(hash) || hash.Length < 2) continue;
             string prefix = hash[..2];
+            if (!hash.All(Uri.IsHexDigit) || hash.Contains("..", StringComparison.Ordinal))
+                continue;
             string dest = Path.Combine(objectsDir, prefix, hash);
-            if (File.Exists(dest) && new FileInfo(dest).Length > 0) continue;
             jobs.Add(($"{BmclApiClient.BaseUrl}/assets/{prefix}/{hash}", dest, hash));
         }
 
@@ -419,7 +430,7 @@ public sealed class MinecraftInstaller
         CancellationToken ct)
     {
         var pending = jobs
-            .Where(j => !File.Exists(j.Path) || new FileInfo(j.Path).Length == 0)
+            .Where(j => !FileLooksReady(j.Path, j.Sha1))
             .DistinctBy(j => j.Path)
             .ToList();
         if (pending.Count == 0)
@@ -438,7 +449,7 @@ public sealed class MinecraftInstaller
             await gate.WaitAsync(ct);
             try
             {
-                await DownloadFileAsync(job.Url, job.Path, job.Sha1, ct);
+                await DownloadFileAsync(job.Url, job.Path, job.Sha1, requireHash: job.Sha1 is { Length: > 0 }, ct);
             }
             catch (OperationCanceledException)
             {
@@ -461,26 +472,34 @@ public sealed class MinecraftInstaller
             throw new InvalidOperationException($"{label}下载失败过多：{errors.First()}");
     }
 
-    private async Task DownloadFileAsync(string url, string destPath, string? sha1, CancellationToken ct)
+    private async Task DownloadFileAsync(
+        string url, string destPath, string? sha1, bool requireHash, CancellationToken ct)
     {
+        if (requireHash && string.IsNullOrWhiteSpace(sha1))
+            throw new InvalidOperationException($"缺少校验哈希：{Path.GetFileName(destPath)}");
+
         Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
         if (File.Exists(destPath) && new FileInfo(destPath).Length > 0)
         {
             if (string.IsNullOrWhiteSpace(sha1) || Sha1Matches(destPath, sha1))
                 return;
+            File.Delete(destPath);
         }
 
         string temp = destPath + ".part";
         try
         {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromMinutes(15));
+
             HttpResponseMessage? response = null;
             for (int attempt = 0; attempt < 4; attempt++)
             {
                 response?.Dispose();
-                response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+                response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
                 if ((int)response.StatusCode is 429 or >= 500)
                 {
-                    await Task.Delay(400 * (attempt + 1), ct);
+                    await Task.Delay(400 * (attempt + 1), timeoutCts.Token);
                     continue;
                 }
                 response.EnsureSuccessStatusCode();
@@ -492,10 +511,13 @@ public sealed class MinecraftInstaller
                 if (response == null)
                     throw new InvalidOperationException("下载未返回响应");
                 response.EnsureSuccessStatusCode();
-                await using var remote = await response.Content.ReadAsStreamAsync(ct);
+                await using var remote = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
                 await using var local = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-                await remote.CopyToAsync(local, ct);
+                await remote.CopyToAsync(local, timeoutCts.Token);
             }
+
+            if (!string.IsNullOrWhiteSpace(sha1) && !Sha1Matches(temp, sha1))
+                throw new InvalidOperationException($"文件校验失败：{Path.GetFileName(destPath)}");
 
             if (File.Exists(destPath))
                 File.Delete(destPath);
@@ -587,14 +609,52 @@ public sealed class MinecraftInstaller
 
     public static string BuildDefaultVersionName(MinecraftInstallRequest request)
     {
-        string id = request.GameVersion.Id;
+        string id = SanitizeVersionSegment(request.GameVersion.Id);
+        if (request.Loader == McLoaderKind.Vanilla)
+            return id;
+        string loader = SanitizeVersionSegment(request.LoaderVersion);
         return request.Loader switch
         {
-            McLoaderKind.Forge => $"{id}-Forge-{request.LoaderVersion}",
-            McLoaderKind.Fabric => $"{id}-Fabric-{request.LoaderVersion}",
-            McLoaderKind.NeoForge => $"{id}-NeoForge-{request.LoaderVersion}",
-            McLoaderKind.OptiFine => $"{id}-OptiFine-{request.LoaderVersion}",
+            McLoaderKind.Forge => $"{id}-Forge-{loader}",
+            McLoaderKind.Fabric => $"{id}-Fabric-{loader}",
+            McLoaderKind.NeoForge => $"{id}-NeoForge-{loader}",
+            McLoaderKind.OptiFine => $"{id}-OptiFine-{loader}",
             _ => id
         };
+    }
+
+    public static string SanitizeVersionSegment(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException("版本名不能为空");
+
+        string name = value.Trim();
+        if (name.Contains("..", StringComparison.Ordinal)
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || name.IndexOfAny(['/', '\\', ':']) >= 0)
+            throw new InvalidOperationException("版本名包含非法字符");
+
+        if (name.Length > 80)
+            name = name[..80];
+        return name;
+    }
+
+    private static bool FileLooksReady(string path, string? sha1)
+    {
+        if (!File.Exists(path) || new FileInfo(path).Length == 0)
+            return false;
+        return string.IsNullOrWhiteSpace(sha1) || Sha1Matches(path, sha1);
+    }
+
+    private static string ConfinePath(string root, string relative)
+    {
+        string fullRoot = Path.GetFullPath(root);
+        string candidate = Path.GetFullPath(Path.Combine(fullRoot, relative));
+        string prefix = fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                        + Path.DirectorySeparatorChar;
+        if (!candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            && !candidate.Equals(fullRoot, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("安装路径越界");
+        return candidate;
     }
 }
