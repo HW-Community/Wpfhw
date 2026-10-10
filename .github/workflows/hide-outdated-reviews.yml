@@ -1,8 +1,9 @@
 name: Hide Outdated Reviews
 
 on:
-  pull_request_target:
-    types: [synchronize]
+  workflow_run:
+    workflows: ["PR Review and Label"]
+    types: [completed]
 
 permissions:
   pull-requests: write
@@ -10,6 +11,7 @@ permissions:
 jobs:
   hide:
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -23,9 +25,14 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
-            const prNumber = context.payload.pull_request.number;
+            // workflow_run 事件里，PR 号要从关联的 pull_requests 里取
+            const prs = context.payload.workflow_run.pull_requests;
+            if (!prs || prs.length === 0) {
+              console.log('没有关联的 PR，退出');
+              return;
+            }
+            const prNumber = prs[0].number;
 
-            // 拉取该 PR 的所有评论（分页处理）
             const comments = await github.paginate(
               github.rest.issues.listComments,
               {
@@ -36,34 +43,30 @@ jobs:
               }
             );
 
-            // 找出机器人发的、含 "DeepSeek 代码审查" 的评论
             const botComments = comments.filter(c => {
               const isBot = c.user.type === 'Bot' || c.user.login.includes('[bot]');
               return isBot && c.body && c.body.includes('DeepSeek 代码审查');
             });
 
-            // 按创建时间倒序，保留最新一条，只隐藏其他的
+            // 按创建时间倒序，保留最新一条
             botComments.sort((a, b) =>
               new Date(b.created_at) - new Date(a.created_at)
             );
-
             const toHide = botComments.slice(1);
 
-            console.log(`共找到 ${botComments.length} 条机器人审查评论，将隐藏 ${toHide.length} 条（保留最新一条）`);
+            console.log(`共 ${botComments.length} 条，隐藏 ${toHide.length} 条`);
 
             for (const comment of toHide) {
               try {
                 await github.graphql(`
                   mutation($id: ID!) {
                     minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
-                      minimizedComment {
-                        isMinimized
-                      }
+                      minimizedComment { isMinimized }
                     }
                   }
                 `, { id: comment.node_id });
-                console.log(`已隐藏评论 ${comment.id} (${comment.created_at})`);
+                console.log(`已隐藏评论 ${comment.id}`);
               } catch (e) {
-                console.log(`隐藏评论 ${comment.id} 失败: ${e.message}`);
+                console.log(`隐藏失败 ${comment.id}: ${e.message}`);
               }
             }
