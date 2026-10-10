@@ -327,12 +327,14 @@ public partial class MainWindow : Window
         {
             ShowWindowWithoutAnimation();
         }
-
-        Dispatcher.BeginInvoke(() =>
+        finally
         {
-            if (Opacity < 0.05 && !_isClosing)
-                ShowWindowWithoutAnimation();
-        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (Opacity < 0.05 && !_isClosing)
+                    ShowWindowWithoutAnimation();
+            }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+        }
     }
 
     private void ShowWindowWithoutAnimation()

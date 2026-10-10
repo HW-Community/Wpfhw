@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Windows;
+﻿using System.Windows;
 
 namespace wpfhw
 {
@@ -17,7 +16,7 @@ namespace wpfhw
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Load theme settings failed: {ex.Message}");
+                AppStorage.Log($"Load theme settings failed: {ex.Message}");
                 mode = AppThemeMode.Light;
             }
 
@@ -27,11 +26,11 @@ namespace wpfhw
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"Apply theme failed: {ex.Message}");
+                AppStorage.Log($"Apply theme failed: {ex.Message}");
                 try { ThemeManager.ApplyTheme(AppThemeMode.Light); }
                 catch (Exception fallbackEx)
                 {
-                    Debug.WriteLine($"Fallback theme failed: {fallbackEx.Message}");
+                    AppStorage.Log($"Fallback theme failed: {fallbackEx.Message}");
                 }
             }
 
