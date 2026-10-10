@@ -319,26 +319,44 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
+        try
+        {
+            ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
+        }
+        catch
+        {
+            Opacity = 1;
+            windowScale.ScaleX = 1;
+            windowScale.ScaleY = 1;
+        }
     }
 
     private async void Window_Closing(object sender, CancelEventArgs e)
     {
-        if (_isClosing) return;
+        if (_isClosing)
+            return;
+
         e.Cancel = true;
         _isClosing = true;
 
-        var board = (Storyboard)FindResource("WindowExit");
-        var tcs = new TaskCompletionSource();
-        EventHandler? handler = null;
-        handler = (_, _) =>
+        try
         {
-            board.Completed -= handler;
-            tcs.TrySetResult();
-        };
-        board.Completed += handler;
-        board.Begin(this, true);
-        await Task.WhenAny(tcs.Task, Task.Delay(400));
+            var board = (Storyboard)FindResource("WindowExit");
+            var tcs = new TaskCompletionSource();
+            EventHandler? handler = null;
+            handler = (_, _) =>
+            {
+                board.Completed -= handler;
+                tcs.TrySetResult();
+            };
+            board.Completed += handler;
+            board.Begin(this, true);
+            await Task.WhenAny(tcs.Task, Task.Delay(400));
+        }
+        catch
+        {
+        }
+
         Close();
     }
 

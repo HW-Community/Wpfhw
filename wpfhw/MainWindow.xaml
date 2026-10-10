@@ -277,6 +277,9 @@
                                 <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible"/>
                                 <Setter TargetName="content" Property="Visibility" Value="Collapsed"/>
                             </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource ThemeAccentHover}"/>
+                            </Trigger>
                             <Trigger Property="IsDropDownOpen" Value="True">
                                 <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
                                 <Setter TargetName="arrow" Property="RenderTransform">
@@ -284,9 +287,6 @@
                                         <RotateTransform Angle="180" CenterX="4" CenterY="2"/>
                                     </Setter.Value>
                                 </Setter>
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="BorderBrush" Value="{DynamicResource ThemeAccentHover}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

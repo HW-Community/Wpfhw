@@ -113,11 +113,6 @@
             </Style.Triggers>
         </Style>
 
-        <Style TargetType="ScrollViewer">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-
         <Style TargetType="Window">
             <Setter Property="Background" Value="Transparent"/>
         </Style>
