@@ -20,21 +20,21 @@
 
         <Storyboard x:Key="WindowEnter">
             <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                             From="0" To="1" Duration="0:0:0.38">
+                             From="0" To="1" Duration="0:0:0.5">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="windowScale"
                              Storyboard.TargetProperty="ScaleX"
-                             From="0.96" To="1" Duration="0:0:0.42">
+                             From="0.96" To="1" Duration="0:0:0.55">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="windowScale"
                              Storyboard.TargetProperty="ScaleY"
-                             From="0.96" To="1" Duration="0:0:0.42">
+                             From="0.96" To="1" Duration="0:0:0.55">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
@@ -43,21 +43,21 @@
 
         <Storyboard x:Key="WindowExit">
             <DoubleAnimation Storyboard.TargetProperty="Opacity"
-                             To="0" Duration="0:0:0.22">
+                             To="0" Duration="0:0:0.32">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="windowScale"
                              Storyboard.TargetProperty="ScaleX"
-                             To="0.94" Duration="0:0:0.22">
+                             To="0.94" Duration="0:0:0.32">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="windowScale"
                              Storyboard.TargetProperty="ScaleY"
-                             To="0.94" Duration="0:0:0.22">
+                             To="0.94" Duration="0:0:0.32">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
@@ -529,19 +529,31 @@
                             BorderBrush="{DynamicResource ThemeBorder}"
                             BorderThickness="1"
                             CornerRadius="22" Padding="4">
-                        <StackPanel x:Name="navPanel" Orientation="Horizontal">
-                            <Button x:Name="navMod" Content="模组" Tag="mod"
-                                    Click="Nav_Click" Style="{StaticResource NavButton}"
-                                    Foreground="{DynamicResource ThemeAccent}" FontWeight="SemiBold"/>
-                            <Button x:Name="navResource" Content="资源包" Tag="resourcepack"
-                                    Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                            <Button x:Name="navShader" Content="光影" Tag="shader"
-                                    Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                            <Button x:Name="navData" Content="数据包" Tag="datapack"
-                                    Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                            <Button x:Name="navPack" Content="整合包" Tag="modpack"
-                                    Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                        </StackPanel>
+                        <Grid>
+                            <Border x:Name="navIndicator"
+                                    HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                                    CornerRadius="16"
+                                    Background="{DynamicResource ThemeCardBackground}"
+                                    Width="0" Opacity="0"
+                                    IsHitTestVisible="False">
+                                <Border.RenderTransform>
+                                    <TranslateTransform x:Name="navIndicatorTransform" X="0"/>
+                                </Border.RenderTransform>
+                            </Border>
+                            <StackPanel x:Name="navPanel" Orientation="Horizontal">
+                                <Button x:Name="navMod" Content="模组" Tag="mod"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"
+                                        Foreground="{DynamicResource ThemeAccent}" FontWeight="SemiBold"/>
+                                <Button x:Name="navResource" Content="资源包" Tag="resourcepack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navShader" Content="光影" Tag="shader"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navData" Content="数据包" Tag="datapack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navPack" Content="整合包" Tag="modpack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                            </StackPanel>
+                        </Grid>
                     </Border>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0 0 20 0" 
@@ -621,6 +633,9 @@
                              Background="Transparent" BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              ScrollViewer.PanningMode="VerticalOnly">
+                        <ListBox.RenderTransform>
+                            <TranslateTransform X="0" Y="0"/>
+                        </ListBox.RenderTransform>
                         <ListBox.ItemContainerStyle>
                             <Style TargetType="ListBoxItem" BasedOn="{StaticResource ModListItem}"/>
                         </ListBox.ItemContainerStyle>

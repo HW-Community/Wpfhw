@@ -329,10 +329,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 入场动画约 420ms，等其结束后再兜底，避免过早触发把动画打断
+        // 入场动画约 550ms，等其结束后再兜底，避免过早触发把动画打断
         var guard = new System.Windows.Threading.DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(600)
+            Interval = TimeSpan.FromMilliseconds(750)
         };
         guard.Tick += (_, _) =>
         {
@@ -401,7 +401,7 @@ public partial class MainWindow : Window
             _activePanel = PanelOf(target);
 
         int token = ++_panelAnimToken;
-        var duration = TimeSpan.FromMilliseconds(280);
+        var duration = TimeSpan.FromMilliseconds(400);
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         double enterX = forward ? 32 : -32;
         double leaveX = forward ? -24 : 24;
@@ -563,6 +563,8 @@ public partial class MainWindow : Window
         lstModResult.Items.Clear();
         _currentOffset = 0;
         _totalHits = 0;
+
+        AnimateSearchContent();
     }
 
     private void UpdateNavStyle(Button active)
@@ -579,7 +581,56 @@ public partial class MainWindow : Window
 
         active.SetResourceReference(Control.ForegroundProperty, "ThemeAccent");
         active.FontWeight = FontWeights.SemiBold;
-        active.SetResourceReference(Control.BackgroundProperty, "ThemeCardBackground");
+        active.Background = Brushes.Transparent;
+
+        MoveNavIndicator(active, _navIndicatorReady);
+        _navIndicatorReady = true;
+    }
+
+    private bool _navIndicatorReady;
+
+    /// <summary>把导航高亮胶囊滑到当前激活按钮下方。</summary>
+    private void MoveNavIndicator(Button active, bool animate)
+    {
+        if (active.ActualWidth <= 0)
+        {
+            // 布局尚未完成，等一次布局后再定位
+            active.Dispatcher.BeginInvoke(() => MoveNavIndicator(active, false),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            return;
+        }
+
+        Point pos = active.TransformToAncestor(navPanel).Transform(new Point(0, 0));
+        double targetX = pos.X;
+        double targetWidth = active.ActualWidth;
+
+        if (!animate)
+        {
+            navIndicatorTransform.X = targetX;
+            navIndicator.Width = targetWidth;
+            navIndicator.Opacity = 1;
+            return;
+        }
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = TimeSpan.FromMilliseconds(380);
+        navIndicatorTransform.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(navIndicatorTransform.X, targetX, dur) { EasingFunction = ease });
+        navIndicator.BeginAnimation(FrameworkElement.WidthProperty,
+            new DoubleAnimation(navIndicator.Width, targetWidth, dur) { EasingFunction = ease });
+        navIndicator.Opacity = 1;
+    }
+
+    /// <summary>切换资源类型时让结果区域轻微上滑淡入。</summary>
+    private void AnimateSearchContent()
+    {
+        if (lstModResult.RenderTransform is not TranslateTransform tt) return;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = TimeSpan.FromMilliseconds(380);
+        lstModResult.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        tt.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(18, 0, dur) { EasingFunction = ease });
     }
 
     #endregion

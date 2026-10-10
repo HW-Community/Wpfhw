@@ -16,37 +16,37 @@
         <Storyboard x:Key="SplashEnter">
             <DoubleAnimation Storyboard.TargetName="splashRoot"
                              Storyboard.TargetProperty="Opacity"
-                             From="0" To="1" Duration="0:0:0.42">
+                             From="0" To="1" Duration="0:0:0.55">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="splashScale"
                              Storyboard.TargetProperty="ScaleX"
-                             From="0.82" To="1" Duration="0:0:0.48">
+                             From="0.82" To="1" Duration="0:0:0.65">
                 <DoubleAnimation.EasingFunction>
                     <BackEase EasingMode="EaseOut" Amplitude="0.28"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="splashScale"
                              Storyboard.TargetProperty="ScaleY"
-                             From="0.82" To="1" Duration="0:0:0.48">
+                             From="0.82" To="1" Duration="0:0:0.65">
                 <DoubleAnimation.EasingFunction>
                     <BackEase EasingMode="EaseOut" Amplitude="0.28"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="logoScale"
                              Storyboard.TargetProperty="ScaleX"
-                             From="0.7" To="1" Duration="0:0:0.55"
-                             BeginTime="0:0:0.08">
+                             From="0.7" To="1" Duration="0:0:0.7"
+                             BeginTime="0:0:0.1">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="logoScale"
                              Storyboard.TargetProperty="ScaleY"
-                             From="0.7" To="1" Duration="0:0:0.55"
-                             BeginTime="0:0:0.08">
+                             From="0.7" To="1" Duration="0:0:0.7"
+                             BeginTime="0:0:0.1">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut"/>
                 </DoubleAnimation.EasingFunction>
@@ -56,21 +56,21 @@
         <Storyboard x:Key="SplashExit">
             <DoubleAnimation Storyboard.TargetName="splashRoot"
                              Storyboard.TargetProperty="Opacity"
-                             From="1" To="0" Duration="0:0:0.28">
+                             From="1" To="0" Duration="0:0:0.38">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="splashScale"
                              Storyboard.TargetProperty="ScaleX"
-                             From="1" To="0.9" Duration="0:0:0.28">
+                             From="1" To="0.9" Duration="0:0:0.38">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
             </DoubleAnimation>
             <DoubleAnimation Storyboard.TargetName="splashScale"
                              Storyboard.TargetProperty="ScaleY"
-                             From="1" To="0.9" Duration="0:0:0.28">
+                             From="1" To="0.9" Duration="0:0:0.38">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseIn"/>
                 </DoubleAnimation.EasingFunction>
