@@ -319,6 +319,8 @@ public partial class MainWindow : Window
 
     private void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        MoveNavIndicator(GetNavButton(_currentProjectType), false);
+
         try
         {
             ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
