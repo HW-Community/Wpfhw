@@ -8,6 +8,7 @@ namespace wpfhw
         {
             AppStorage.Initialize();
             base.OnStartup(e);
+            ThemeManager.ApplyTheme(AppSettings.Load().ThemeMode);
 
             var splash = new SplashScreen();
             splash.Show();

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
@@ -64,7 +65,10 @@ public partial class MainWindow : Window
     // 设置面板返回时要回到的面板
     private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading }
     private MainPanel _lastPanel = MainPanel.Search;
+    private MainPanel _activePanel = MainPanel.Search;
     private bool _suppressSettingsSave;
+    private bool _isClosing;
+    private int _panelAnimToken;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -313,23 +317,110 @@ public partial class MainWindow : Window
         WindowState = WindowState.Minimized;
     }
 
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
+    }
+
+    private async void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (_isClosing) return;
+        e.Cancel = true;
+        _isClosing = true;
+
+        var board = (Storyboard)FindResource("WindowExit");
+        var tcs = new TaskCompletionSource();
+        EventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            board.Completed -= handler;
+            tcs.TrySetResult();
+        };
+        board.Completed += handler;
+        board.Begin(this, true);
+        await Task.WhenAny(tcs.Task, Task.Delay(400));
+        Close();
+    }
+
+    private FrameworkElement[] ContentPanels =>
+        new FrameworkElement[] { panelSearch, panelVersionDetail, panelDownloadConfirm, panelDownloading, panelSettings };
+
+    private MainPanel PanelOf(FrameworkElement panel)
+    {
+        if (panel == panelVersionDetail) return MainPanel.VersionDetail;
+        if (panel == panelDownloadConfirm) return MainPanel.DownloadConfirm;
+        if (panel == panelDownloading) return MainPanel.Downloading;
+        return MainPanel.Search;
+    }
+
+    private async void SwitchPanel(FrameworkElement target, bool forward)
+    {
+        var visible = ContentPanels.Where(p => p.Visibility == Visibility.Visible).ToList();
+        if (visible.Count == 1 && visible[0] == target) return;
+        if (target != panelSettings)
+            _activePanel = PanelOf(target);
+
+        int token = ++_panelAnimToken;
+        var duration = TimeSpan.FromMilliseconds(280);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        double enterX = forward ? 32 : -32;
+        double leaveX = forward ? -24 : 24;
+
+        target.Visibility = Visibility.Visible;
+        target.Opacity = 0;
+        if (target.RenderTransform is TranslateTransform enter)
+            enter.X = enterX;
+
+        foreach (var panel in visible.Where(p => p != target))
+        {
+            panel.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(1, 0, duration) { EasingFunction = ease });
+            if (panel.RenderTransform is TranslateTransform leave)
+                leave.BeginAnimation(TranslateTransform.XProperty,
+                    new DoubleAnimation(0, leaveX, duration) { EasingFunction = ease });
+        }
+
+        target.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, duration) { EasingFunction = ease });
+        if (target.RenderTransform is TranslateTransform incoming)
+            incoming.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(enterX, 0, duration) { EasingFunction = ease });
+
+        await Task.Delay(duration);
+        if (token != _panelAnimToken) return;
+
+        foreach (var panel in ContentPanels)
+        {
+            panel.BeginAnimation(OpacityProperty, null);
+            if (panel.RenderTransform is TranslateTransform t)
+            {
+                t.BeginAnimation(TranslateTransform.XProperty, null);
+                t.X = 0;
+            }
+
+            if (panel == target)
+            {
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Collapsed;
+            }
+        }
+    }
+
     #endregion
 
     #region ========== 设置面板 ==========
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        // 记录当前面板，便于返回
-        if (panelVersionDetail.Visibility == Visibility.Visible) _lastPanel = MainPanel.VersionDetail;
-        else if (panelDownloadConfirm.Visibility == Visibility.Visible) _lastPanel = MainPanel.DownloadConfirm;
-        else if (panelDownloading.Visibility == Visibility.Visible) _lastPanel = MainPanel.Downloading;
-        else _lastPanel = MainPanel.Search;
+        if (panelSettings.Visibility != Visibility.Visible)
+            _lastPanel = _activePanel;
 
-        panelSearch.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
-        panelSettings.Visibility = Visibility.Visible;
+        SwitchPanel(panelSettings, true);
 
         UpdateThemeButtons();
         ApplyDownloadOptionsToUi();
@@ -337,22 +428,14 @@ public partial class MainWindow : Window
 
     private void BtnBackFromSettings_Click(object sender, RoutedEventArgs e)
     {
-        panelSettings.Visibility = Visibility.Collapsed;
-        switch (_lastPanel)
+        FrameworkElement target = _lastPanel switch
         {
-            case MainPanel.VersionDetail:
-                panelVersionDetail.Visibility = Visibility.Visible;
-                break;
-            case MainPanel.DownloadConfirm:
-                panelDownloadConfirm.Visibility = Visibility.Visible;
-                break;
-            case MainPanel.Downloading:
-                panelDownloading.Visibility = Visibility.Visible;
-                break;
-            default:
-                panelSearch.Visibility = Visibility.Visible;
-                break;
-        }
+            MainPanel.VersionDetail => panelVersionDetail,
+            MainPanel.DownloadConfirm => panelDownloadConfirm,
+            MainPanel.Downloading => panelDownloading,
+            _ => panelSearch
+        };
+        SwitchPanel(target, false);
     }
 
     private void ThemeButton_Click(object sender, RoutedEventArgs e)
@@ -456,7 +539,7 @@ public partial class MainWindow : Window
 
         active.SetResourceReference(Control.ForegroundProperty, "ThemeAccent");
         active.FontWeight = FontWeights.SemiBold;
-        active.SetResourceReference(Control.BackgroundProperty, "ThemeWindowBackground");
+        active.SetResourceReference(Control.BackgroundProperty, "ThemeCardBackground");
     }
 
     #endregion
@@ -851,10 +934,7 @@ public partial class MainWindow : Window
         _downloadProjectType = ProjectTypes.Contains(modHit.ProjectType)
             ? modHit.ProjectType
             : (ProjectTypes.Contains(_currentProjectType) ? _currentProjectType : "mod");
-        panelSearch.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
+        SwitchPanel(panelVersionDetail, true);
 
         panelVersionDetail.DataContext = new { SelectedMod = modHit };
         btnOpenExternal.Content = "访问 Modrinth";
@@ -937,8 +1017,7 @@ public partial class MainWindow : Window
 
     private void BtnBack_Click(object sender, RoutedEventArgs e)
     {
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelSearch.Visibility = Visibility.Visible;
+        SwitchPanel(panelSearch, false);
         _currentVersions.Clear();
         itemsVersionGroups.ItemsSource = null;
         lstModResult.SelectedIndex = -1;
@@ -992,14 +1071,12 @@ public partial class MainWindow : Window
         txtDownloadFileName.Text = mainFile.FileName;
         txtDownloadVersionInfo.Text = $"版本: {item.Version.VersionNumber} | MC版本: {string.Join(", ", item.Version.GameVersions.Take(3))}";
 
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelDownloadConfirm.Visibility = Visibility.Visible;
+        SwitchPanel(panelDownloadConfirm, true);
     }
 
     private void BtnBackFromDownload_Click(object sender, RoutedEventArgs e)
     {
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
+        SwitchPanel(panelVersionDetail, false);
         _pendingDownloadFile = null;
         _pendingVersion = null;
         _pendingDownloadProjectType = "mod";
@@ -1046,8 +1123,7 @@ public partial class MainWindow : Window
         _pendingDownloadFile = null;
         _pendingVersion = null;
         _pendingDownloadProjectType = "mod";
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
+        SwitchPanel(panelVersionDetail, false);
         txtStatusMsg.Text = $"已加入下载队列：{fileName}";
         _ = Task.Run(() => RunDownloadAsync(request, _downloadCts!.Token));
     }
@@ -1219,11 +1295,7 @@ public partial class MainWindow : Window
             {
                 if (ownsPanel)
                 {
-                    panelVersionDetail.Visibility = Visibility.Collapsed;
-                    panelSearch.Visibility = Visibility.Collapsed;
-                    panelDownloadConfirm.Visibility = Visibility.Collapsed;
-                    panelSettings.Visibility = Visibility.Collapsed;
-                    panelDownloading.Visibility = Visibility.Visible;
+                    SwitchPanel(panelDownloading, true);
 
                     txtDownloadingFile.Text = displayName;
                     progressBarFill.Width = 0;
@@ -1347,10 +1419,7 @@ public partial class MainWindow : Window
                     }
 
                     if (panelSettings.Visibility != Visibility.Visible)
-                    {
-                        panelDownloading.Visibility = Visibility.Collapsed;
-                        panelVersionDetail.Visibility = Visibility.Visible;
-                    }
+                        SwitchPanel(panelVersionDetail, false);
                 });
             }
         }
