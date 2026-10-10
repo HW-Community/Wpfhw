@@ -326,15 +326,21 @@ public partial class MainWindow : Window
         catch
         {
             ShowWindowWithoutAnimation();
+            return;
         }
-        finally
+
+        // 入场动画约 420ms，等其结束后再兜底，避免过早触发把动画打断
+        var guard = new System.Windows.Threading.DispatcherTimer
         {
-            Dispatcher.BeginInvoke(() =>
-            {
-                if (Opacity < 0.05 && !_isClosing)
-                    ShowWindowWithoutAnimation();
-            }, System.Windows.Threading.DispatcherPriority.ContextIdle);
-        }
+            Interval = TimeSpan.FromMilliseconds(600)
+        };
+        guard.Tick += (_, _) =>
+        {
+            guard.Stop();
+            if (Opacity < 0.05 && !_isClosing)
+                ShowWindowWithoutAnimation();
+        };
+        guard.Start();
     }
 
     private void ShowWindowWithoutAnimation()
