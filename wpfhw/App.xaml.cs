@@ -17,7 +17,6 @@ namespace wpfhw
             catch (Exception ex)
             {
                 AppStorage.Log($"Load theme settings failed: {ex.Message}");
-                mode = AppThemeMode.Light;
             }
 
             try
@@ -27,7 +26,7 @@ namespace wpfhw
             catch (Exception ex)
             {
                 AppStorage.Log($"Apply theme failed: {ex.Message}");
-                try { ThemeManager.ApplyTheme(AppThemeMode.Light); }
+                try { ThemeManager.ApplyTheme(AppThemeMode.System); }
                 catch (Exception fallbackEx)
                 {
                     AppStorage.Log($"Fallback theme failed: {fallbackEx.Message}");
