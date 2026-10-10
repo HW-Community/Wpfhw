@@ -325,10 +325,24 @@ public partial class MainWindow : Window
         }
         catch
         {
-            Opacity = 1;
-            windowScale.ScaleX = 1;
-            windowScale.ScaleY = 1;
+            ShowWindowWithoutAnimation();
         }
+
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (Opacity < 0.05 && !_isClosing)
+                ShowWindowWithoutAnimation();
+        }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+    }
+
+    private void ShowWindowWithoutAnimation()
+    {
+        BeginAnimation(OpacityProperty, null);
+        Opacity = 1;
+        windowScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        windowScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        windowScale.ScaleX = 1;
+        windowScale.ScaleY = 1;
     }
 
     private async void Window_Closing(object sender, CancelEventArgs e)
