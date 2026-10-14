@@ -78,12 +78,32 @@
                         <Border x:Name="border"
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="14"
-                                Padding="{TemplateBinding Padding}">
+                                Padding="{TemplateBinding Padding}"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="btnScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1.03" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1.03" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentPressed}"/>
@@ -112,12 +132,32 @@
                                 BorderBrush="{DynamicResource ThemeBorder}"
                                 BorderThickness="1"
                                 CornerRadius="14"
-                                Padding="{TemplateBinding Padding}">
+                                Padding="{TemplateBinding Padding}"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="btnScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1.03" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1.03" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardPressed}"/>
@@ -369,12 +409,32 @@
                                 BorderBrush="{DynamicResource ThemeBorder}"
                                 BorderThickness="1"
                                 CornerRadius="16"
-                                Padding="{TemplateBinding Padding}">
+                                Padding="{TemplateBinding Padding}"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="btnScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardAltBackground}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1.06" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1.06" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardPressed}"/>
@@ -398,12 +458,32 @@
                         <Border x:Name="border"
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="16"
-                                Padding="{TemplateBinding Padding}">
+                                Padding="{TemplateBinding Padding}"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform x:Name="btnScale" ScaleX="1" ScaleY="1"/>
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeCardBackground}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1.05" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1.05" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.14"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.14"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -444,7 +524,12 @@
                                       StrokeLineJoin="Round"
                                       Width="20" Height="20"
                                       Stretch="None"
-                                      Visibility="Collapsed"/>
+                                      RenderTransformOrigin="0.5,0.5"
+                                      Visibility="Collapsed">
+                                    <Path.RenderTransform>
+                                        <ScaleTransform x:Name="checkScale" ScaleX="1" ScaleY="1"/>
+                                    </Path.RenderTransform>
+                                </Path>
                             </Border>
                             <ContentPresenter Margin="10 0 0 0"
                                               VerticalAlignment="Center"
@@ -455,6 +540,22 @@
                                 <Setter TargetName="box" Property="Background" Value="{DynamicResource ThemeAccent}"/>
                                 <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
                                 <Setter TargetName="check" Property="Visibility" Value="Visible"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="checkScale" Storyboard.TargetProperty="ScaleX" From="0.4" To="1" Duration="0:0:0.22">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase EasingMode="EaseOut" Amplitude="0.5"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation Storyboard.TargetName="checkScale" Storyboard.TargetProperty="ScaleY" From="0.4" To="1" Duration="0:0:0.22">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <BackEase EasingMode="EaseOut" Amplitude="0.5"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource ThemeAccent}"/>
@@ -490,6 +591,40 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
+                    <!-- 导航胶囊：横跨整行并居中，保证相对整个窗口水平居中 -->
+                    <Border Grid.Column="0" Grid.ColumnSpan="3"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Background="{DynamicResource ThemeCardAltBackground}"
+                            BorderBrush="{DynamicResource ThemeBorder}"
+                            BorderThickness="1"
+                            CornerRadius="22" Padding="4">
+                        <Grid>
+                            <Border x:Name="navIndicator"
+                                    HorizontalAlignment="Left" VerticalAlignment="Stretch"
+                                    CornerRadius="16"
+                                    Background="{DynamicResource ThemeCardBackground}"
+                                    Width="0" Opacity="0"
+                                    IsHitTestVisible="False">
+                                <Border.RenderTransform>
+                                    <TranslateTransform x:Name="navIndicatorTransform" X="0"/>
+                                </Border.RenderTransform>
+                            </Border>
+                            <StackPanel x:Name="navPanel" Orientation="Horizontal">
+                                <Button x:Name="navMod" Content="模组" Tag="mod"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"
+                                        Foreground="{DynamicResource ThemeAccent}" FontWeight="SemiBold"/>
+                                <Button x:Name="navResource" Content="资源包" Tag="resourcepack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navShader" Content="光影" Tag="shader"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navData" Content="数据包" Tag="datapack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                                <Button x:Name="navPack" Content="整合包" Tag="modpack"
+                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                     <!-- 左上角小 Logo -->
                     <Grid Grid.Column="0" Width="40" Height="40" Margin="20 0 0 0"
                           HorizontalAlignment="Left" VerticalAlignment="Center">
@@ -522,39 +657,6 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
-
-                    <Border Grid.Column="1"
-                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Background="{DynamicResource ThemeCardAltBackground}"
-                            BorderBrush="{DynamicResource ThemeBorder}"
-                            BorderThickness="1"
-                            CornerRadius="22" Padding="4">
-                        <Grid>
-                            <Border x:Name="navIndicator"
-                                    HorizontalAlignment="Left" VerticalAlignment="Stretch"
-                                    CornerRadius="16"
-                                    Background="{DynamicResource ThemeCardBackground}"
-                                    Width="0" Opacity="0"
-                                    IsHitTestVisible="False">
-                                <Border.RenderTransform>
-                                    <TranslateTransform x:Name="navIndicatorTransform" X="0"/>
-                                </Border.RenderTransform>
-                            </Border>
-                            <StackPanel x:Name="navPanel" Orientation="Horizontal">
-                                <Button x:Name="navMod" Content="模组" Tag="mod"
-                                        Click="Nav_Click" Style="{StaticResource NavButton}"
-                                        Foreground="{DynamicResource ThemeAccent}" FontWeight="SemiBold"/>
-                                <Button x:Name="navResource" Content="资源包" Tag="resourcepack"
-                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                                <Button x:Name="navShader" Content="光影" Tag="shader"
-                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                                <Button x:Name="navData" Content="数据包" Tag="datapack"
-                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                                <Button x:Name="navPack" Content="整合包" Tag="modpack"
-                                        Click="Nav_Click" Style="{StaticResource NavButton}"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0 0 20 0" 
                                 VerticalAlignment="Center">
@@ -1165,12 +1267,41 @@
                         <Border x:Name="border"
                                 Background="{TemplateBinding Background}"
                                 CornerRadius="22"
-                                Padding="10">
+                                Padding="10"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <TransformGroup>
+                                    <ScaleTransform x:Name="btnScale" ScaleX="1" ScaleY="1"/>
+                                    <RotateTransform x:Name="btnRotate" Angle="0"/>
+                                </TransformGroup>
+                            </Border.RenderTransform>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1.08" Duration="0:0:0.18"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1.08" Duration="0:0:0.18"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnRotate" Storyboard.TargetProperty="Angle" To="90" Duration="0:0:0.35">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase EasingMode="EaseOut"/>
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.18"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnScale" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.18"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnRotate" Storyboard.TargetProperty="Angle" To="0" Duration="0:0:0.35"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.ExitActions>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentPressed}"/>

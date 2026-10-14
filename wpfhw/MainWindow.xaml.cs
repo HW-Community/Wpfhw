@@ -12,6 +12,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Data;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 
 namespace wpfhw;
 
@@ -69,6 +70,7 @@ public partial class MainWindow : Window
     private bool _suppressSettingsSave;
     private bool _isClosing;
     private int _panelAnimToken;
+    private DropShadowEffect? _windowShadow;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -89,15 +91,16 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        _windowShadow = windowChrome.Effect as DropShadowEffect;
+
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(15);
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
             "ModDownloader/1.0 (haodi0302@qq.com; Windows)");
 
         _settings = AppSettings.Load();
-        _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
-            ? _settings.LastProjectType
-            : "mod";
+        // 启动时始终回到「模组」，避免上次遗留的资源类型（如光影）导致启动跳转
+        _currentProjectType = "mod";
         _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
             ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
@@ -323,10 +326,14 @@ public partial class MainWindow : Window
 
         try
         {
+            // 缩放动画期间临时移除窗口阴影：DropShadowEffect 为软件渲染，
+            // 若每帧随缩放重算会造成明显卡顿，动画结束后再恢复。
+            windowChrome.Effect = null;
             ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
         }
         catch
         {
+            windowChrome.Effect = _windowShadow;
             ShowWindowWithoutAnimation();
             return;
         }
@@ -334,11 +341,14 @@ public partial class MainWindow : Window
         // 入场动画约 550ms，等其结束后再兜底，避免过早触发把动画打断
         var guard = new System.Windows.Threading.DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(750)
+            Interval = TimeSpan.FromMilliseconds(650)
         };
         guard.Tick += (_, _) =>
         {
             guard.Stop();
+            windowChrome.Effect = _windowShadow;
+            // 布局最终稳定后再校准一次导航指示器，消除首帧竞态
+            MoveNavIndicator(GetNavButton(_currentProjectType), false);
             if (Opacity < 0.05 && !_isClosing)
                 ShowWindowWithoutAnimation();
         };
@@ -365,6 +375,7 @@ public partial class MainWindow : Window
 
         try
         {
+            windowChrome.Effect = null;
             var board = (Storyboard)FindResource("WindowExit");
             var tcs = new TaskCompletionSource();
             EventHandler? handler = null;
@@ -403,10 +414,10 @@ public partial class MainWindow : Window
             _activePanel = PanelOf(target);
 
         int token = ++_panelAnimToken;
-        var duration = TimeSpan.FromMilliseconds(400);
+        var duration = TimeSpan.FromMilliseconds(360);
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        double enterX = forward ? 32 : -32;
-        double leaveX = forward ? -24 : 24;
+        double enterX = forward ? 40 : -40;
+        double leaveX = forward ? -28 : 28;
 
         target.Visibility = Visibility.Visible;
         target.Opacity = 0;
@@ -415,6 +426,9 @@ public partial class MainWindow : Window
 
         foreach (var panel in visible.Where(p => p != target))
         {
+            // 仅对「离场」面板做位图缓存：它只做位移+淡出，栅格化后为纯合成操作，
+            // 可避免每帧重绘整棵视觉树；「入场」面板因内部卡片有错落动画，缓存反而会反复失效。
+            panel.CacheMode = new BitmapCache();
             panel.BeginAnimation(OpacityProperty,
                 new DoubleAnimation(1, 0, duration) { EasingFunction = ease });
             if (panel.RenderTransform is TranslateTransform leave)
@@ -428,12 +442,16 @@ public partial class MainWindow : Window
             incoming.BeginAnimation(TranslateTransform.XProperty,
                 new DoubleAnimation(enterX, 0, duration) { EasingFunction = ease });
 
-        await Task.Delay(duration);
+        if (target is Panel targetPanel)
+            AnimatePanelChildren(targetPanel);
+
+        await Task.Delay(duration + TimeSpan.FromMilliseconds(40));
         if (token != _panelAnimToken) return;
 
         foreach (var panel in ContentPanels)
         {
             panel.BeginAnimation(OpacityProperty, null);
+            panel.CacheMode = null;
             if (panel.RenderTransform is TranslateTransform t)
             {
                 t.BeginAnimation(TranslateTransform.XProperty, null);
@@ -449,6 +467,66 @@ public partial class MainWindow : Window
             {
                 panel.Opacity = 1;
                 panel.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        if (target is Panel targetPanel2)
+            ResetPanelChildren(targetPanel2);
+    }
+
+    /// <summary>面板切换时，让面板内的卡片依次上滑淡入，形成层次感。</summary>
+    private static void AnimatePanelChildren(Panel panel)
+    {
+        const double delayStepMs = 45;
+        int index = 0;
+        foreach (var child in panel.Children)
+        {
+            if (child is not FrameworkElement el) continue;
+
+            el.BeginAnimation(OpacityProperty, null);
+            el.Opacity = 0;
+
+            TranslateTransform? slide = el.RenderTransform as TranslateTransform;
+            if (slide == null && el.RenderTransform == null)
+            {
+                slide = new TranslateTransform(0, 16);
+                el.RenderTransform = slide;
+            }
+
+            if (slide != null)
+            {
+                slide.BeginAnimation(TranslateTransform.YProperty, null);
+                slide.Y = 16;
+                slide.BeginAnimation(TranslateTransform.YProperty,
+                    new DoubleAnimation(16, 0, TimeSpan.FromMilliseconds(320))
+                    {
+                        BeginTime = TimeSpan.FromMilliseconds(index * delayStepMs),
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    });
+            }
+
+            el.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300))
+                {
+                    BeginTime = TimeSpan.FromMilliseconds(index * delayStepMs),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+            index++;
+        }
+    }
+
+    /// <summary>复位面板子元素的入场动画，避免动画残留导致错位。</summary>
+    private static void ResetPanelChildren(Panel panel)
+    {
+        foreach (var child in panel.Children)
+        {
+            if (child is not FrameworkElement el) continue;
+            el.BeginAnimation(OpacityProperty, null);
+            el.Opacity = 1;
+            if (el.RenderTransform is TranslateTransform slide)
+            {
+                slide.BeginAnimation(TranslateTransform.YProperty, null);
+                slide.Y = 0;
             }
         }
     }
@@ -715,6 +793,8 @@ public partial class MainWindow : Window
         {
             await DoModrinthSearch(keyword, ct);
         }
+
+        AnimateSearchContent();
     }
 
     /// <summary>中文关键词搜 MC百科，返回候选英文名列表。实际最多取前 8 个有英文名的结果去 Modrinth 匹配。</summary>
@@ -1525,7 +1605,12 @@ public partial class MainWindow : Window
         double targetWidth = percent / 100.0 * parent.ActualWidth;
         if (targetWidth < 0) targetWidth = 0;
 
-        progressBarFill.Width = targetWidth;
+        progressBarFill.BeginAnimation(
+            FrameworkElement.WidthProperty,
+            new DoubleAnimation(targetWidth, TimeSpan.FromMilliseconds(140))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
     }
 
     /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 或远程文件对象。</summary>
