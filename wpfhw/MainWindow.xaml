@@ -254,10 +254,18 @@
                             <ToggleButton x:Name="toggle"
                                           Background="Transparent"
                                           BorderThickness="0"
+                                          Focusable="False"
+                                          IsTabStop="False"
                                           IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
                                           ClickMode="Press"
                                           HorizontalAlignment="Stretch"
-                                          VerticalAlignment="Stretch"/>
+                                          VerticalAlignment="Stretch">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="Transparent"/>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
 
                             <!-- 选中项显示 -->
                             <ContentPresenter x:Name="content"
