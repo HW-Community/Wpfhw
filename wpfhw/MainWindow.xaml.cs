@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Data;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 
 namespace wpfhw;
 
@@ -64,7 +66,12 @@ public partial class MainWindow : Window
     // 设置面板返回时要回到的面板
     private enum MainPanel { Search, VersionDetail, DownloadConfirm, Downloading }
     private MainPanel _lastPanel = MainPanel.Search;
+    private MainPanel _activePanel = MainPanel.Search;
     private bool _suppressSettingsSave;
+    private bool _isClosing;
+    private int _panelAnimToken;
+    private int _searchToken;
+    private DropShadowEffect? _windowShadow;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
@@ -85,15 +92,16 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        _windowShadow = windowChrome.Effect as DropShadowEffect;
+
         _httpClient = new HttpClient();
         _httpClient.Timeout = TimeSpan.FromSeconds(15);
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
             "ModDownloader/1.0 (haodi0302@qq.com; Windows)");
 
         _settings = AppSettings.Load();
-        _currentProjectType = ProjectTypes.Contains(_settings.LastProjectType)
-            ? _settings.LastProjectType
-            : "mod";
+        // 启动时始终回到「模组」，避免上次遗留的资源类型（如光影）导致启动跳转
+        _currentProjectType = "mod";
         _downloadPath = ResolveExistingDirectory(_settings.DownloadPath)
             ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
 
@@ -313,23 +321,231 @@ public partial class MainWindow : Window
         WindowState = WindowState.Minimized;
     }
 
+    private void Window_Loaded(object sender, RoutedEventArgs e)
+    {
+        MoveNavIndicator(GetNavButton(_currentProjectType), false);
+
+        try
+        {
+            // 缩放动画期间临时移除窗口阴影：DropShadowEffect 为软件渲染，
+            // 若每帧随缩放重算会造成明显卡顿，动画结束后再恢复。
+            windowChrome.Effect = null;
+            ((Storyboard)FindResource("WindowEnter")).Begin(this, true);
+        }
+        catch
+        {
+            windowChrome.Effect = _windowShadow;
+            ShowWindowWithoutAnimation();
+            TriggerSearch();
+            return;
+        }
+
+        // 入场动画约 550ms，等其结束后再兜底，避免过早触发把动画打断
+        var guard = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(650)
+        };
+        guard.Tick += (_, _) =>
+        {
+            guard.Stop();
+            windowChrome.Effect = _windowShadow;
+            // 布局最终稳定后再校准一次导航指示器，消除首帧竞态
+            MoveNavIndicator(GetNavButton(_currentProjectType), false);
+            if (Opacity < 0.05 && !_isClosing)
+                ShowWindowWithoutAnimation();
+            // 打开软件即自动搜索当前资源类型
+            if (!_isClosing)
+                TriggerSearch();
+        };
+        guard.Start();
+    }
+
+    private void ShowWindowWithoutAnimation()
+    {
+        BeginAnimation(OpacityProperty, null);
+        Opacity = 1;
+        windowScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        windowScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        windowScale.ScaleX = 1;
+        windowScale.ScaleY = 1;
+    }
+
+    private async void Window_Closing(object sender, CancelEventArgs e)
+    {
+        if (_isClosing)
+            return;
+
+        e.Cancel = true;
+        _isClosing = true;
+
+        try
+        {
+            windowChrome.Effect = null;
+            var board = (Storyboard)FindResource("WindowExit");
+            var tcs = new TaskCompletionSource();
+            EventHandler? handler = null;
+            handler = (_, _) =>
+            {
+                board.Completed -= handler;
+                tcs.TrySetResult();
+            };
+            board.Completed += handler;
+            board.Begin(this, true);
+            await Task.WhenAny(tcs.Task, Task.Delay(400));
+        }
+        catch
+        {
+        }
+
+        Close();
+    }
+
+    private FrameworkElement[] ContentPanels =>
+        new FrameworkElement[] { panelSearch, panelVersionDetail, panelDownloadConfirm, panelDownloading, panelSettings };
+
+    private MainPanel PanelOf(FrameworkElement panel)
+    {
+        if (panel == panelVersionDetail) return MainPanel.VersionDetail;
+        if (panel == panelDownloadConfirm) return MainPanel.DownloadConfirm;
+        if (panel == panelDownloading) return MainPanel.Downloading;
+        return MainPanel.Search;
+    }
+
+    private async void SwitchPanel(FrameworkElement target, bool forward)
+    {
+        var visible = ContentPanels.Where(p => p.Visibility == Visibility.Visible).ToList();
+        if (visible.Count == 1 && visible[0] == target) return;
+        if (target != panelSettings)
+            _activePanel = PanelOf(target);
+
+        int token = ++_panelAnimToken;
+        var duration = TimeSpan.FromMilliseconds(360);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        double enterX = forward ? 40 : -40;
+        double leaveX = forward ? -28 : 28;
+
+        target.Visibility = Visibility.Visible;
+        target.Opacity = 0;
+        if (target.RenderTransform is TranslateTransform enter)
+            enter.X = enterX;
+
+        foreach (var panel in visible.Where(p => p != target))
+        {
+            // 仅对「离场」面板做位图缓存：它只做位移+淡出，栅格化后为纯合成操作，
+            // 可避免每帧重绘整棵视觉树；「入场」面板因内部卡片有错落动画，缓存反而会反复失效。
+            panel.CacheMode = new BitmapCache();
+            panel.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(1, 0, duration) { EasingFunction = ease });
+            if (panel.RenderTransform is TranslateTransform leave)
+                leave.BeginAnimation(TranslateTransform.XProperty,
+                    new DoubleAnimation(0, leaveX, duration) { EasingFunction = ease });
+        }
+
+        target.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, duration) { EasingFunction = ease });
+        if (target.RenderTransform is TranslateTransform incoming)
+            incoming.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(enterX, 0, duration) { EasingFunction = ease });
+
+        if (target is Panel targetPanel)
+            AnimatePanelChildren(targetPanel);
+
+        await Task.Delay(duration + TimeSpan.FromMilliseconds(40));
+        if (token != _panelAnimToken) return;
+
+        foreach (var panel in ContentPanels)
+        {
+            panel.BeginAnimation(OpacityProperty, null);
+            panel.CacheMode = null;
+            if (panel.RenderTransform is TranslateTransform t)
+            {
+                t.BeginAnimation(TranslateTransform.XProperty, null);
+                t.X = 0;
+            }
+
+            if (panel == target)
+            {
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                panel.Opacity = 1;
+                panel.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        if (target is Panel targetPanel2)
+            ResetPanelChildren(targetPanel2);
+    }
+
+    /// <summary>面板切换时，让面板内的卡片依次上滑淡入，形成层次感。</summary>
+    private static void AnimatePanelChildren(Panel panel)
+    {
+        const double delayStepMs = 45;
+        int index = 0;
+        foreach (var child in panel.Children)
+        {
+            if (child is not FrameworkElement el) continue;
+
+            el.BeginAnimation(OpacityProperty, null);
+            el.Opacity = 0;
+
+            TranslateTransform? slide = el.RenderTransform as TranslateTransform;
+            if (slide == null && el.RenderTransform == null)
+            {
+                slide = new TranslateTransform(0, 16);
+                el.RenderTransform = slide;
+            }
+
+            if (slide != null)
+            {
+                slide.BeginAnimation(TranslateTransform.YProperty, null);
+                slide.Y = 16;
+                slide.BeginAnimation(TranslateTransform.YProperty,
+                    new DoubleAnimation(16, 0, TimeSpan.FromMilliseconds(320))
+                    {
+                        BeginTime = TimeSpan.FromMilliseconds(index * delayStepMs),
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    });
+            }
+
+            el.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(300))
+                {
+                    BeginTime = TimeSpan.FromMilliseconds(index * delayStepMs),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+            index++;
+        }
+    }
+
+    /// <summary>复位面板子元素的入场动画，避免动画残留导致错位。</summary>
+    private static void ResetPanelChildren(Panel panel)
+    {
+        foreach (var child in panel.Children)
+        {
+            if (child is not FrameworkElement el) continue;
+            el.BeginAnimation(OpacityProperty, null);
+            el.Opacity = 1;
+            if (el.RenderTransform is TranslateTransform slide)
+            {
+                slide.BeginAnimation(TranslateTransform.YProperty, null);
+                slide.Y = 0;
+            }
+        }
+    }
+
     #endregion
 
     #region ========== 设置面板 ==========
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
     {
-        // 记录当前面板，便于返回
-        if (panelVersionDetail.Visibility == Visibility.Visible) _lastPanel = MainPanel.VersionDetail;
-        else if (panelDownloadConfirm.Visibility == Visibility.Visible) _lastPanel = MainPanel.DownloadConfirm;
-        else if (panelDownloading.Visibility == Visibility.Visible) _lastPanel = MainPanel.Downloading;
-        else _lastPanel = MainPanel.Search;
+        if (panelSettings.Visibility != Visibility.Visible)
+            _lastPanel = _activePanel;
 
-        panelSearch.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
-        panelSettings.Visibility = Visibility.Visible;
+        SwitchPanel(panelSettings, true);
 
         UpdateThemeButtons();
         ApplyDownloadOptionsToUi();
@@ -337,22 +553,14 @@ public partial class MainWindow : Window
 
     private void BtnBackFromSettings_Click(object sender, RoutedEventArgs e)
     {
-        panelSettings.Visibility = Visibility.Collapsed;
-        switch (_lastPanel)
+        FrameworkElement target = _lastPanel switch
         {
-            case MainPanel.VersionDetail:
-                panelVersionDetail.Visibility = Visibility.Visible;
-                break;
-            case MainPanel.DownloadConfirm:
-                panelDownloadConfirm.Visibility = Visibility.Visible;
-                break;
-            case MainPanel.Downloading:
-                panelDownloading.Visibility = Visibility.Visible;
-                break;
-            default:
-                panelSearch.Visibility = Visibility.Visible;
-                break;
-        }
+            MainPanel.VersionDetail => panelVersionDetail,
+            MainPanel.DownloadConfirm => panelDownloadConfirm,
+            MainPanel.Downloading => panelDownloading,
+            _ => panelSearch
+        };
+        SwitchPanel(target, false);
     }
 
     private void ThemeButton_Click(object sender, RoutedEventArgs e)
@@ -436,10 +644,11 @@ public partial class MainWindow : Window
         cbbGameVersion.SelectedIndex = 0;
         cbbLoader.SelectedIndex = 0;
 
-        txtStatusMsg.Text = "已切换，点击搜索";
         lstModResult.Items.Clear();
-        _currentOffset = 0;
         _totalHits = 0;
+
+        // 切换资源类型后自动发起一次搜索（空关键词即浏览该类型热门）
+        TriggerSearch();
     }
 
     private void UpdateNavStyle(Button active)
@@ -456,18 +665,97 @@ public partial class MainWindow : Window
 
         active.SetResourceReference(Control.ForegroundProperty, "ThemeAccent");
         active.FontWeight = FontWeights.SemiBold;
-        active.SetResourceReference(Control.BackgroundProperty, "ThemeWindowBackground");
+        active.Background = Brushes.Transparent;
+
+        MoveNavIndicator(active, _navIndicatorReady);
+        _navIndicatorReady = true;
+    }
+
+    private bool _navIndicatorReady;
+
+    /// <summary>把导航高亮胶囊滑到当前激活按钮下方。</summary>
+    private void MoveNavIndicator(Button active, bool animate)
+    {
+        if (active.ActualWidth <= 0)
+        {
+            // 布局尚未完成，等一次布局后再定位
+            active.Dispatcher.BeginInvoke(() => MoveNavIndicator(active, false),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+            return;
+        }
+
+        Point pos = active.TransformToAncestor(navPanel).Transform(new Point(0, 0));
+        double targetX = pos.X;
+        double targetWidth = active.ActualWidth;
+
+        if (!animate)
+        {
+            navIndicatorTransform.X = targetX;
+            navIndicator.Width = targetWidth;
+            navIndicator.Opacity = 1;
+            return;
+        }
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = TimeSpan.FromMilliseconds(380);
+        navIndicatorTransform.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(navIndicatorTransform.X, targetX, dur) { EasingFunction = ease });
+        navIndicator.BeginAnimation(FrameworkElement.WidthProperty,
+            new DoubleAnimation(navIndicator.Width, targetWidth, dur) { EasingFunction = ease });
+        navIndicator.Opacity = 1;
+    }
+
+    /// <summary>切换资源类型时让结果区域轻微上滑淡入。</summary>
+    private void AnimateSearchContent()
+    {
+        if (lstModResult.RenderTransform is not TranslateTransform tt) return;
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var dur = TimeSpan.FromMilliseconds(380);
+        lstModResult.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, dur) { EasingFunction = ease });
+        tt.BeginAnimation(TranslateTransform.YProperty,
+            new DoubleAnimation(18, 0, dur) { EasingFunction = ease });
     }
 
     #endregion
 
     #region ========== 搜索面板（Modrinth + MC百科中译）==========
 
-    private void BtnSearch_Click(object sender, RoutedEventArgs e)
+    private void BtnSearch_Click(object sender, RoutedEventArgs e) => TriggerSearch();
+
+    /// <summary>以搜索框当前内容发起一次搜索（清空分页）。</summary>
+    private void TriggerSearch()
     {
         _currentOffset = 0;
         _lastKeyword = txtSearchKey.Text.Trim();
         DoSearch();
+    }
+
+    /// <summary>显示屏幕中央的搜索加载遮罩并启动旋转动画。</summary>
+    private void ShowSearching()
+    {
+        overlaySearching.Visibility = Visibility.Visible;
+        overlaySearching.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(0.92, 1, TimeSpan.FromMilliseconds(240)) { EasingFunction = ease });
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(0.92, 1, TimeSpan.FromMilliseconds(240)) { EasingFunction = ease });
+        ((Storyboard)FindResource("SpinnerSpin")).Begin(this, true);
+    }
+
+    /// <summary>隐藏搜索加载遮罩并停止动画。</summary>
+    private void HideSearching()
+    {
+        ((Storyboard)FindResource("SpinnerSpin")).Stop(this);
+        overlaySearching.BeginAnimation(OpacityProperty, null);
+        overlaySearching.Opacity = 1;
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        searchingCardScale.ScaleX = 1;
+        searchingCardScale.ScaleY = 1;
+        overlaySearching.Visibility = Visibility.Collapsed;
     }
 
     private void TxtSearchKey_KeyDown(object sender, KeyEventArgs e)
@@ -491,54 +779,69 @@ public partial class MainWindow : Window
         string keyword = _lastKeyword;
         bool isChinese = ContainsChinese(keyword);
 
-        if (isChinese)
+        int token = ++_searchToken;
+        ShowSearching();
+        try
         {
-            // 中文关键词：先 MC百科 找对应 mod 的英文名，建立英文名->中译映射；
-            // 然后把这些英文名逐个丢给 Modrinth 搜索，合并结果。
-            txtStatusMsg.Text = "正在通过MC百科匹配英文名...";
-            statusDot.Visibility = Visibility.Visible;
-            try
+            if (isChinese)
             {
-                var mcHits = await SearchMCModEnNames(keyword, ct);
-                if (mcHits.Count == 0)
+                // 中文关键词：先 MC百科 找对应 mod 的英文名，建立英文名->中译映射；
+                // 然后把这些英文名逐个丢给 Modrinth 搜索，合并结果。
+                txtStatusMsg.Text = "正在通过MC百科匹配英文名...";
+                statusDot.Visibility = Visibility.Visible;
+                try
                 {
-                    txtStatusMsg.Text = "MC百科未匹配到结果，将直接用关键词尝试 Modrinth 搜索";
-                    // 最后兜底直接搜 Modrinth
-                    await DoModrinthSearch(keyword, ct);
-                    return;
-                }
-
-                // 填充 pendingByEnglish
-                foreach (var h in mcHits)
-                {
-                    if (string.IsNullOrWhiteSpace(h.EnglishName)) continue;
-                    var key = NormalizeEnglishName(h.EnglishName);
-                    if (string.IsNullOrWhiteSpace(key)) continue;
-                    _pendingByEnglish[key] = new ModTranslation
+                    var mcHits = await SearchMCModEnNames(keyword, ct);
+                    if (mcHits.Count == 0)
                     {
-                        ChineseTitle = h.Title,
-                        ChineseDesc = h.Description,
-                        MatchEnglishName = h.EnglishName
-                    };
-                }
+                        txtStatusMsg.Text = "MC百科未匹配到结果，将直接用关键词尝试 Modrinth 搜索";
+                        // 最后兜底直接搜 Modrinth
+                        await DoModrinthSearch(keyword, ct);
+                    }
+                    else
+                    {
+                        // 填充 pendingByEnglish
+                        foreach (var h in mcHits)
+                        {
+                            if (string.IsNullOrWhiteSpace(h.EnglishName)) continue;
+                            var key = NormalizeEnglishName(h.EnglishName);
+                            if (string.IsNullOrWhiteSpace(key)) continue;
+                            _pendingByEnglish[key] = new ModTranslation
+                            {
+                                ChineseTitle = h.Title,
+                                ChineseDesc = h.Description,
+                                MatchEnglishName = h.EnglishName
+                            };
+                        }
 
-                await SearchModrinthByEnglishNames(mcHits, ct);
+                        await SearchModrinthByEnglishNames(mcHits, ct);
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    txtStatusMsg.Text = $"MC百科匹配失败：{ex.Message}，尝试直接搜 Modrinth";
+                    try { await DoModrinthSearch(keyword, ct); } catch { }
+                }
+                finally
+                {
+                    statusDot.Visibility = Visibility.Collapsed;
+                }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
+            else
             {
-                txtStatusMsg.Text = $"MC百科匹配失败：{ex.Message}，尝试直接搜 Modrinth";
-                try { await DoModrinthSearch(keyword, ct); } catch { }
-            }
-            finally
-            {
-                statusDot.Visibility = Visibility.Collapsed;
+                await DoModrinthSearch(keyword, ct);
             }
         }
-        else
+        finally
         {
-            await DoModrinthSearch(keyword, ct);
+            // 仅最新一次搜索负责收起遮罩，避免被已取消的旧搜索误关
+            if (token == _searchToken)
+                HideSearching();
         }
+
+        if (token == _searchToken)
+            AnimateSearchContent();
     }
 
     /// <summary>中文关键词搜 MC百科，返回候选英文名列表。实际最多取前 8 个有英文名的结果去 Modrinth 匹配。</summary>
@@ -851,10 +1154,7 @@ public partial class MainWindow : Window
         _downloadProjectType = ProjectTypes.Contains(modHit.ProjectType)
             ? modHit.ProjectType
             : (ProjectTypes.Contains(_currentProjectType) ? _currentProjectType : "mod");
-        panelSearch.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelDownloading.Visibility = Visibility.Collapsed;
+        SwitchPanel(panelVersionDetail, true);
 
         panelVersionDetail.DataContext = new { SelectedMod = modHit };
         btnOpenExternal.Content = "访问 Modrinth";
@@ -937,8 +1237,7 @@ public partial class MainWindow : Window
 
     private void BtnBack_Click(object sender, RoutedEventArgs e)
     {
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelSearch.Visibility = Visibility.Visible;
+        SwitchPanel(panelSearch, false);
         _currentVersions.Clear();
         itemsVersionGroups.ItemsSource = null;
         lstModResult.SelectedIndex = -1;
@@ -992,14 +1291,12 @@ public partial class MainWindow : Window
         txtDownloadFileName.Text = mainFile.FileName;
         txtDownloadVersionInfo.Text = $"版本: {item.Version.VersionNumber} | MC版本: {string.Join(", ", item.Version.GameVersions.Take(3))}";
 
-        panelVersionDetail.Visibility = Visibility.Collapsed;
-        panelDownloadConfirm.Visibility = Visibility.Visible;
+        SwitchPanel(panelDownloadConfirm, true);
     }
 
     private void BtnBackFromDownload_Click(object sender, RoutedEventArgs e)
     {
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
+        SwitchPanel(panelVersionDetail, false);
         _pendingDownloadFile = null;
         _pendingVersion = null;
         _pendingDownloadProjectType = "mod";
@@ -1046,8 +1343,7 @@ public partial class MainWindow : Window
         _pendingDownloadFile = null;
         _pendingVersion = null;
         _pendingDownloadProjectType = "mod";
-        panelDownloadConfirm.Visibility = Visibility.Collapsed;
-        panelVersionDetail.Visibility = Visibility.Visible;
+        SwitchPanel(panelVersionDetail, false);
         txtStatusMsg.Text = $"已加入下载队列：{fileName}";
         _ = Task.Run(() => RunDownloadAsync(request, _downloadCts!.Token));
     }
@@ -1219,11 +1515,7 @@ public partial class MainWindow : Window
             {
                 if (ownsPanel)
                 {
-                    panelVersionDetail.Visibility = Visibility.Collapsed;
-                    panelSearch.Visibility = Visibility.Collapsed;
-                    panelDownloadConfirm.Visibility = Visibility.Collapsed;
-                    panelSettings.Visibility = Visibility.Collapsed;
-                    panelDownloading.Visibility = Visibility.Visible;
+                    SwitchPanel(panelDownloading, true);
 
                     txtDownloadingFile.Text = displayName;
                     progressBarFill.Width = 0;
@@ -1347,10 +1639,7 @@ public partial class MainWindow : Window
                     }
 
                     if (panelSettings.Visibility != Visibility.Visible)
-                    {
-                        panelDownloading.Visibility = Visibility.Collapsed;
-                        panelVersionDetail.Visibility = Visibility.Visible;
-                    }
+                        SwitchPanel(panelVersionDetail, false);
                 });
             }
         }
@@ -1363,7 +1652,12 @@ public partial class MainWindow : Window
         double targetWidth = percent / 100.0 * parent.ActualWidth;
         if (targetWidth < 0) targetWidth = 0;
 
-        progressBarFill.Width = targetWidth;
+        progressBarFill.BeginAnimation(
+            FrameworkElement.WidthProperty,
+            new DoubleAnimation(targetWidth, TimeSpan.FromMilliseconds(140))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+            });
     }
 
     /// <summary>单次下载任务的快照参数，避免后台线程读取可变 UI 或远程文件对象。</summary>

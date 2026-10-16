@@ -62,6 +62,8 @@ public class AppSettings
                 if (loaded != null)
                 {
                     loaded.MaxDownloadThreads = Math.Clamp(loaded.MaxDownloadThreads, 1, 16);
+                    if (!Enum.IsDefined(loaded.ThemeMode))
+                        loaded.ThemeMode = AppThemeMode.System;
                     return loaded;
                 }
             }

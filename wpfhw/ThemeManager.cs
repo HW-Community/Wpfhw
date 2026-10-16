@@ -4,13 +4,8 @@ using Microsoft.Win32;
 
 namespace wpfhw;
 
-/// <summary>
-/// 主题管理器：维护一组共享的 SolidColorBrush 资源，
-/// 通过修改 Color 属性实现浅色 / 深色 / 跟随系统主题的切换。
-/// </summary>
 public static class ThemeManager
 {
-    // 资源 key（与 App.xaml 中定义的一致）
     public const string KeyWindowBackground = "ThemeWindowBackground";
     public const string KeyCardBackground = "ThemeCardBackground";
     public const string KeyCardAltBackground = "ThemeCardAltBackground";
@@ -25,33 +20,41 @@ public static class ThemeManager
     public const string KeyAccent = "ThemeAccent";
     public const string KeyAccentHover = "ThemeAccentHover";
     public const string KeyAccentPressed = "ThemeAccentPressed";
+    public const string KeyAccentSoft = "ThemeAccentSoft";
+    public const string KeyBorder = "ThemeBorder";
+    public const string KeyScrollTrack = "ThemeScrollTrack";
+    public const string KeyScrollThumb = "ThemeScrollThumb";
+    public const string KeyScrollThumbHover = "ThemeScrollThumbHover";
 
     private static readonly (string Key, Color Light, Color Dark)[] Palette =
     {
-        (KeyWindowBackground,   Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0x1C, 0x1C, 0x1E)),
-        (KeyCardBackground,     Color.FromRgb(0xF2, 0xF2, 0xF7), Color.FromRgb(0x2C, 0x2C, 0x2E)),
-        (KeyCardAltBackground,  Color.FromRgb(0xE5, 0xE5, 0xEA), Color.FromRgb(0x3A, 0x3A, 0x3C)),
-        (KeyCardPressed,        Color.FromRgb(0xD1, 0xD1, 0xD6), Color.FromRgb(0x48, 0x48, 0x4A)),
-        (KeyPrimaryText,        Color.FromRgb(0x33, 0x33, 0x33), Color.FromRgb(0xFF, 0xFF, 0xFF)),
-        (KeySecondaryText,      Color.FromRgb(0x66, 0x66, 0x66), Color.FromRgb(0xEB, 0xEB, 0xF5)),
-        (KeyTertiaryText,       Color.FromRgb(0x99, 0x99, 0x99), Color.FromRgb(0x8E, 0x8E, 0x93)),
-        (KeyInputBackground,    Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0x3A, 0x3A, 0x3C)),
-        (KeyInputFocusBackground, Color.FromRgb(0xF5, 0xF5, 0xF5), Color.FromRgb(0x48, 0x48, 0x4A)),
-        (KeyItemHover,          Color.FromRgb(0xF2, 0xF2, 0xF7), Color.FromRgb(0x3A, 0x3A, 0x3C)),
-        (KeyItemSelected,       Color.FromRgb(0xE5, 0xE5, 0xEA), Color.FromRgb(0x48, 0x48, 0x4A)),
-        (KeyAccent,             Color.FromRgb(0x00, 0x7A, 0xFF), Color.FromRgb(0x0A, 0x84, 0xFF)),
-        (KeyAccentHover,        Color.FromRgb(0x33, 0x95, 0xFF), Color.FromRgb(0x40, 0x9C, 0xFF)),
-        (KeyAccentPressed,      Color.FromRgb(0x00, 0x56, 0xB3), Color.FromRgb(0x00, 0x60, 0xCC))
+        (KeyWindowBackground,     Color.FromRgb(0xF6, 0xF7, 0xF9), Color.FromRgb(0x12, 0x12, 0x16)),
+        (KeyCardBackground,       Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0x1C, 0x1C, 0x22)),
+        (KeyCardAltBackground,    Color.FromRgb(0xEE, 0xF0, 0xF4), Color.FromRgb(0x27, 0x27, 0x2E)),
+        (KeyCardPressed,          Color.FromRgb(0xDD, 0xE1, 0xE8), Color.FromRgb(0x32, 0x32, 0x3A)),
+        (KeyPrimaryText,          Color.FromRgb(0x18, 0x18, 0x1B), Color.FromRgb(0xF4, 0xF4, 0xF5)),
+        (KeySecondaryText,        Color.FromRgb(0x52, 0x52, 0x5B), Color.FromRgb(0xA1, 0xA1, 0xAA)),
+        (KeyTertiaryText,         Color.FromRgb(0xA1, 0xA1, 0xAA), Color.FromRgb(0x71, 0x71, 0x7A)),
+        (KeyInputBackground,      Color.FromRgb(0xF4, 0xF5, 0xF7), Color.FromRgb(0x27, 0x27, 0x2E)),
+        (KeyInputFocusBackground, Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0x32, 0x32, 0x3A)),
+        (KeyItemHover,            Color.FromRgb(0xF0, 0xF4, 0xFF), Color.FromRgb(0x24, 0x2A, 0x3A)),
+        (KeyItemSelected,         Color.FromRgb(0xE4, 0xED, 0xFF), Color.FromRgb(0x1E, 0x2A, 0x44)),
+        (KeyAccent,               Color.FromRgb(0x25, 0x63, 0xEB), Color.FromRgb(0x60, 0xA5, 0xFA)),
+        (KeyAccentHover,          Color.FromRgb(0x3B, 0x82, 0xF6), Color.FromRgb(0x93, 0xC5, 0xFD)),
+        (KeyAccentPressed,        Color.FromRgb(0x1D, 0x4E, 0xD8), Color.FromRgb(0x3B, 0x82, 0xF6)),
+        (KeyAccentSoft,           Color.FromArgb(0x33, 0x25, 0x63, 0xEB), Color.FromArgb(0x40, 0x60, 0xA5, 0xFA)),
+        (KeyBorder,               Color.FromRgb(0xE4, 0xE7, 0xEC), Color.FromRgb(0x2E, 0x2E, 0x38)),
+        (KeyScrollTrack,          Color.FromArgb(0x00, 0x00, 0x00, 0x00), Color.FromArgb(0x00, 0x00, 0x00, 0x00)),
+        (KeyScrollThumb,          Color.FromRgb(0xC5, 0xCA, 0xD3), Color.FromRgb(0x3F, 0x3F, 0x46)),
+        (KeyScrollThumbHover,     Color.FromRgb(0x8B, 0x93, 0xA0), Color.FromRgb(0xA1, 0xA1, 0xAA))
     };
 
-    /// <summary>应用指定主题模式。</summary>
     public static void ApplyTheme(AppThemeMode mode)
     {
         bool isDark = mode == AppThemeMode.Dark || (mode == AppThemeMode.System && IsSystemDark());
         Apply(isDark);
     }
 
-    /// <summary>读取 Windows 系统是否为深色模式。</summary>
     public static bool IsSystemDark()
     {
         try
@@ -71,10 +74,6 @@ public static class ThemeManager
     {
         var resources = Application.Current.Resources;
         foreach (var (key, light, dark) in Palette)
-        {
-            Color color = isDark ? dark : light;
-            // 直接替换资源为新的 Brush（避免已冻结的 Brush 无法改色）
-            resources[key] = new SolidColorBrush(color);
-        }
+            resources[key] = new SolidColorBrush(isDark ? dark : light);
     }
 }
