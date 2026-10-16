@@ -70,6 +70,7 @@ public partial class MainWindow : Window
     private bool _suppressSettingsSave;
     private bool _isClosing;
     private int _panelAnimToken;
+    private int _searchToken;
     private DropShadowEffect? _windowShadow;
 
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
@@ -335,6 +336,7 @@ public partial class MainWindow : Window
         {
             windowChrome.Effect = _windowShadow;
             ShowWindowWithoutAnimation();
+            TriggerSearch();
             return;
         }
 
@@ -351,6 +353,9 @@ public partial class MainWindow : Window
             MoveNavIndicator(GetNavButton(_currentProjectType), false);
             if (Opacity < 0.05 && !_isClosing)
                 ShowWindowWithoutAnimation();
+            // 打开软件即自动搜索当前资源类型
+            if (!_isClosing)
+                TriggerSearch();
         };
         guard.Start();
     }
@@ -639,12 +644,11 @@ public partial class MainWindow : Window
         cbbGameVersion.SelectedIndex = 0;
         cbbLoader.SelectedIndex = 0;
 
-        txtStatusMsg.Text = "已切换，点击搜索";
         lstModResult.Items.Clear();
-        _currentOffset = 0;
         _totalHits = 0;
 
-        AnimateSearchContent();
+        // 切换资源类型后自动发起一次搜索（空关键词即浏览该类型热门）
+        TriggerSearch();
     }
 
     private void UpdateNavStyle(Button active)
@@ -717,11 +721,41 @@ public partial class MainWindow : Window
 
     #region ========== 搜索面板（Modrinth + MC百科中译）==========
 
-    private void BtnSearch_Click(object sender, RoutedEventArgs e)
+    private void BtnSearch_Click(object sender, RoutedEventArgs e) => TriggerSearch();
+
+    /// <summary>以搜索框当前内容发起一次搜索（清空分页）。</summary>
+    private void TriggerSearch()
     {
         _currentOffset = 0;
         _lastKeyword = txtSearchKey.Text.Trim();
         DoSearch();
+    }
+
+    /// <summary>显示屏幕中央的搜索加载遮罩并启动旋转动画。</summary>
+    private void ShowSearching()
+    {
+        overlaySearching.Visibility = Visibility.Visible;
+        overlaySearching.BeginAnimation(OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(0.92, 1, TimeSpan.FromMilliseconds(240)) { EasingFunction = ease });
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(0.92, 1, TimeSpan.FromMilliseconds(240)) { EasingFunction = ease });
+        ((Storyboard)FindResource("SpinnerSpin")).Begin(this, true);
+    }
+
+    /// <summary>隐藏搜索加载遮罩并停止动画。</summary>
+    private void HideSearching()
+    {
+        ((Storyboard)FindResource("SpinnerSpin")).Stop(this);
+        overlaySearching.BeginAnimation(OpacityProperty, null);
+        overlaySearching.Opacity = 1;
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        searchingCardScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+        searchingCardScale.ScaleX = 1;
+        searchingCardScale.ScaleY = 1;
+        overlaySearching.Visibility = Visibility.Collapsed;
     }
 
     private void TxtSearchKey_KeyDown(object sender, KeyEventArgs e)
@@ -745,56 +779,69 @@ public partial class MainWindow : Window
         string keyword = _lastKeyword;
         bool isChinese = ContainsChinese(keyword);
 
-        if (isChinese)
+        int token = ++_searchToken;
+        ShowSearching();
+        try
         {
-            // 中文关键词：先 MC百科 找对应 mod 的英文名，建立英文名->中译映射；
-            // 然后把这些英文名逐个丢给 Modrinth 搜索，合并结果。
-            txtStatusMsg.Text = "正在通过MC百科匹配英文名...";
-            statusDot.Visibility = Visibility.Visible;
-            try
+            if (isChinese)
             {
-                var mcHits = await SearchMCModEnNames(keyword, ct);
-                if (mcHits.Count == 0)
+                // 中文关键词：先 MC百科 找对应 mod 的英文名，建立英文名->中译映射；
+                // 然后把这些英文名逐个丢给 Modrinth 搜索，合并结果。
+                txtStatusMsg.Text = "正在通过MC百科匹配英文名...";
+                statusDot.Visibility = Visibility.Visible;
+                try
                 {
-                    txtStatusMsg.Text = "MC百科未匹配到结果，将直接用关键词尝试 Modrinth 搜索";
-                    // 最后兜底直接搜 Modrinth
-                    await DoModrinthSearch(keyword, ct);
-                    return;
-                }
-
-                // 填充 pendingByEnglish
-                foreach (var h in mcHits)
-                {
-                    if (string.IsNullOrWhiteSpace(h.EnglishName)) continue;
-                    var key = NormalizeEnglishName(h.EnglishName);
-                    if (string.IsNullOrWhiteSpace(key)) continue;
-                    _pendingByEnglish[key] = new ModTranslation
+                    var mcHits = await SearchMCModEnNames(keyword, ct);
+                    if (mcHits.Count == 0)
                     {
-                        ChineseTitle = h.Title,
-                        ChineseDesc = h.Description,
-                        MatchEnglishName = h.EnglishName
-                    };
+                        txtStatusMsg.Text = "MC百科未匹配到结果，将直接用关键词尝试 Modrinth 搜索";
+                        // 最后兜底直接搜 Modrinth
+                        await DoModrinthSearch(keyword, ct);
+                    }
+                    else
+                    {
+                        // 填充 pendingByEnglish
+                        foreach (var h in mcHits)
+                        {
+                            if (string.IsNullOrWhiteSpace(h.EnglishName)) continue;
+                            var key = NormalizeEnglishName(h.EnglishName);
+                            if (string.IsNullOrWhiteSpace(key)) continue;
+                            _pendingByEnglish[key] = new ModTranslation
+                            {
+                                ChineseTitle = h.Title,
+                                ChineseDesc = h.Description,
+                                MatchEnglishName = h.EnglishName
+                            };
+                        }
+
+                        await SearchModrinthByEnglishNames(mcHits, ct);
+                    }
                 }
-
-                await SearchModrinthByEnglishNames(mcHits, ct);
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    txtStatusMsg.Text = $"MC百科匹配失败：{ex.Message}，尝试直接搜 Modrinth";
+                    try { await DoModrinthSearch(keyword, ct); } catch { }
+                }
+                finally
+                {
+                    statusDot.Visibility = Visibility.Collapsed;
+                }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
+            else
             {
-                txtStatusMsg.Text = $"MC百科匹配失败：{ex.Message}，尝试直接搜 Modrinth";
-                try { await DoModrinthSearch(keyword, ct); } catch { }
-            }
-            finally
-            {
-                statusDot.Visibility = Visibility.Collapsed;
+                await DoModrinthSearch(keyword, ct);
             }
         }
-        else
+        finally
         {
-            await DoModrinthSearch(keyword, ct);
+            // 仅最新一次搜索负责收起遮罩，避免被已取消的旧搜索误关
+            if (token == _searchToken)
+                HideSearching();
         }
 
-        AnimateSearchContent();
+        if (token == _searchToken)
+            AnimateSearchContent();
     }
 
     /// <summary>中文关键词搜 MC百科，返回候选英文名列表。实际最多取前 8 个有英文名的结果去 Modrinth 匹配。</summary>
