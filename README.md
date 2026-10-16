@@ -1,6 +1,20 @@
-# Wpfhw
+<h1 align="center">Wpfhw</h1>
 
-> 一个用 Modrinth API 制作的 Modrinth 资源下载器
+<p align="center">
+  <strong>一个用 Modrinth API 制作的 Modrinth 资源下载器</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/HW-Community/Wpfhw/stargazers">
+    <img src="https://img.shields.io/github/stars/HW-Community/Wpfhw?style=for-the-badge&logo=github&color=blue" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/HW-Community/Wpfhw/network/members">
+    <img src="https://img.shields.io/github/forks/HW-Community/Wpfhw?style=for-the-badge&logo=github&color=blue" alt="GitHub forks">
+  </a>
+  <a href="https://github.com/HW-Community/Wpfhw/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/HW-Community/Wpfhw?style=for-the-badge&color=brightgreen" alt="GitHub license">
+  </a>
+</p>
 
 Wpfhw 是一款基于 WPF 构建的 Windows 桌面应用，通过 [Modrinth API](https://docs.modrinth.com) 帮你搜索、浏览和下载 Minecraft 模组、整合包、资源包和光影包。告别浏览器里来回翻页的繁琐操作，在一个窗口里完成从检索到下载的全部流程。
 
@@ -147,7 +161,7 @@ dotnet publish -c Release -r win-x64 --self-contained false
 
 ## 开源协议
 
-本项目采用 [MIT License](LICENSE) 开源。
+本项目采用 [Mozilla Public License 2.0](LICENSE) 开源。
 
 ## 致谢
 
