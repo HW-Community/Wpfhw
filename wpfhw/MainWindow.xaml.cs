@@ -76,6 +76,14 @@ public partial class MainWindow : Window
     /// <summary>中译缓存：key = Modrinth ProjectId（小写）</summary>
     private readonly Dictionary<string, ModTranslation> _translations = new();
 
+    /// <summary>依赖项目信息缓存：key = Modrinth ProjectId</summary>
+    private readonly Dictionary<string, ModProjectInfo> _projectInfoCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>从依赖跳转到其他模组时的返回栈</summary>
+    private readonly Stack<ModSearchHit> _detailBackStack = new();
+
+    private int _detailToken;
+
     /// <summary>待匹配的中译：key = 英文名小写 -> 中译。搜 Modrinth 前先填这个，命中 Modrinth 结果时迁移到 _translations。</summary>
     private readonly Dictionary<string, ModTranslation> _pendingByEnglish = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1123,6 +1131,7 @@ public partial class MainWindow : Window
     private void LstModResult_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (lstModResult.SelectedItem is not ModSearchHit modHit) return;
+        _detailBackStack.Clear();
         _selectedMod = modHit;
         ShowVersionDetail(modHit);
     }
@@ -1151,6 +1160,8 @@ public partial class MainWindow : Window
 
     private async void ShowVersionDetail(ModSearchHit modHit)
     {
+        int token = ++_detailToken;
+        _selectedMod = modHit;
         _downloadProjectType = ProjectTypes.Contains(modHit.ProjectType)
             ? modHit.ProjectType
             : (ProjectTypes.Contains(_currentProjectType) ? _currentProjectType : "mod");
@@ -1158,20 +1169,65 @@ public partial class MainWindow : Window
 
         panelVersionDetail.DataContext = new { SelectedMod = modHit };
         btnOpenExternal.Content = "访问 Modrinth";
+        itemsVersionGroups.ItemsSource = null;
+        txtStatusMsg.Text = "正在加载版本列表...";
 
         try
         {
             string url = $"https://api.modrinth.com/v2/project/{modHit.ProjectId}/version";
             string json = await _httpClient.GetStringAsync(url);
+            if (token != _detailToken) return;
 
-            _currentVersions = JsonSerializer.Deserialize<List<ModVersion>>(json, SharedJsonOptions) ?? new();
+            var versions = JsonSerializer.Deserialize<List<ModVersion>>(json, SharedJsonOptions) ?? new();
+            try
+            {
+                await ResolveDependencyProjectsAsync(versions, token);
+            }
+            catch (Exception depEx)
+            {
+                // 依赖信息解析失败不影响版本列表展示
+                txtStatusMsg.Text = $"依赖信息加载失败：{depEx.Message}";
+            }
+            if (token != _detailToken) return;
 
+            _currentVersions = versions;
             BuildVersionTags();
             FilterVersionsByTag(_currentGameVer);
         }
         catch (Exception ex)
         {
-            txtStatusMsg.Text = $"加载失败：{ex.Message}";
+            if (token == _detailToken)
+                txtStatusMsg.Text = $"加载失败：{ex.Message}";
+        }
+    }
+
+    /// <summary>批量把必装依赖的 project_id 解析成标题、图标、项目类型，供页面展示和跳转。</summary>
+    private async Task ResolveDependencyProjectsAsync(List<ModVersion> versions, int token)
+    {
+        var ids = versions
+            .SelectMany(v => v.Dependencies)
+            .Where(d => d.IsRequired && !string.IsNullOrWhiteSpace(d.ProjectId))
+            .Select(d => d.ProjectId!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(id => !_projectInfoCache.ContainsKey(id))
+            .ToList();
+
+        const int batchSize = 50;
+        for (int i = 0; i < ids.Count; i += batchSize)
+        {
+            var chunk = ids.Skip(i).Take(batchSize).ToList();
+            string idsJson = JsonSerializer.Serialize(chunk);
+            string url = "https://api.modrinth.com/v2/projects?ids=" + Uri.EscapeDataString(idsJson);
+            string json = await _httpClient.GetStringAsync(url);
+            if (token != _detailToken) return;
+
+            var projects = JsonSerializer.Deserialize<List<ModProjectInfo>>(json, SharedJsonOptions);
+            if (projects == null) continue;
+            foreach (var project in projects)
+            {
+                if (!string.IsNullOrWhiteSpace(project.Id))
+                    _projectInfoCache[project.Id] = project;
+            }
         }
     }
 
@@ -1229,7 +1285,7 @@ public partial class MainWindow : Window
             : _currentVersions.Where(v => v.GameVersions.Contains(gameVerTag)).ToList();
 
         var displayItems = filtered
-            .Select(v => new VersionDisplayItem(v))
+            .Select(v => new VersionDisplayItem(v, _projectInfoCache))
             .ToList();
 
         itemsVersionGroups.ItemsSource = displayItems;
@@ -1237,10 +1293,27 @@ public partial class MainWindow : Window
 
     private void BtnBack_Click(object sender, RoutedEventArgs e)
     {
+        if (_detailBackStack.Count > 0)
+        {
+            var previous = _detailBackStack.Pop();
+            lstModResult.SelectedIndex = -1;
+            ShowVersionDetail(previous);
+            return;
+        }
+
         SwitchPanel(panelSearch, false);
         _currentVersions.Clear();
         itemsVersionGroups.ItemsSource = null;
         lstModResult.SelectedIndex = -1;
+    }
+
+    /// <summary>点击版本卡片中的前置依赖，跳转到该依赖模组的版本选择页。</summary>
+    private void BtnOpenDependency_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not DependencyDisplayItem dependency) return;
+        if (_selectedMod != null)
+            _detailBackStack.Push(_selectedMod);
+        ShowVersionDetail(dependency.ToSearchHit());
     }
 
     private void BtnOpenModrinth_Click(object sender, RoutedEventArgs e)
@@ -1248,7 +1321,7 @@ public partial class MainWindow : Window
         if (_selectedMod == null) return;
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = $"https://modrinth.com/{_currentProjectType}/{_selectedMod.ProjectId}",
+            FileName = $"https://modrinth.com/{_downloadProjectType}/{_selectedMod.ProjectId}",
             UseShellExecute = true
         });
     }
@@ -1290,6 +1363,9 @@ public partial class MainWindow : Window
         txtDownloadPath.Text = _downloadPath;
         txtDownloadFileName.Text = mainFile.FileName;
         txtDownloadVersionInfo.Text = $"版本: {item.Version.VersionNumber} | MC版本: {string.Join(", ", item.Version.GameVersions.Take(3))}";
+        txtDownloadDependencies.Text = item.HasDependencies
+            ? $"前置依赖：{string.Join("、", item.Dependencies.Select(d => d.Title))}（可在版本列表点击前置项下载）"
+            : "前置依赖：无";
 
         SwitchPanel(panelDownloadConfirm, true);
     }
@@ -1674,18 +1750,85 @@ public partial class MainWindow : Window
 
 public class VersionDisplayItem
 {
+    private static readonly SolidColorBrush ReleaseBrush = CreateBrush(0x34, 0xC7, 0x59);
+    private static readonly SolidColorBrush BetaBrush = CreateBrush(0xFF, 0x95, 0x00);
+    private static readonly SolidColorBrush AlphaBrush = CreateBrush(0xFF, 0x3B, 0x30);
+
     public ModVersion Version { get; }
     public string VersionNumber => Version.VersionNumber;
     public string LoadersDisplay => string.Join(", ", Version.Loaders);
     public string GameVersionsDisplay => string.Join(", ", Version.GameVersions);
     public string VersionInfo => $"支持MC: {GameVersionsDisplay} | Loaders: {LoadersDisplay}";
-    public bool IsPreview => Version.VersionNumber.Contains("beta", StringComparison.OrdinalIgnoreCase)
-        || Version.VersionNumber.Contains("alpha", StringComparison.OrdinalIgnoreCase)
-        || Version.VersionNumber.Contains("rc", StringComparison.OrdinalIgnoreCase);
-    public bool IsRelease => !IsPreview;
 
-    public VersionDisplayItem(ModVersion version)
+    public string NormalizedVersionType { get; }
+    public bool IsRelease => NormalizedVersionType == "release";
+    public bool IsBeta => NormalizedVersionType == "beta";
+    public bool IsAlpha => NormalizedVersionType == "alpha";
+    public string VersionTypeLabel => IsRelease ? "R" : IsBeta ? "B" : "A";
+    public string VersionTypeName => IsRelease ? "正式版" : "测试版";
+    public Brush VersionTypeBrush => IsRelease ? ReleaseBrush : IsBeta ? BetaBrush : AlphaBrush;
+
+    public List<DependencyDisplayItem> Dependencies { get; }
+    public bool HasDependencies => Dependencies.Count > 0;
+
+    public VersionDisplayItem(ModVersion version, IReadOnlyDictionary<string, ModProjectInfo> projectInfoCache)
     {
         Version = version;
+        NormalizedVersionType = ResolveVersionType(version);
+        Dependencies = version.Dependencies
+            .Where(d => d.IsRequired && !string.IsNullOrWhiteSpace(d.ProjectId))
+            .GroupBy(d => d.ProjectId!, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new DependencyDisplayItem(g.First(), LookupProject(g.Key, projectInfoCache)))
+            .ToList();
     }
+
+    private static ModProjectInfo? LookupProject(string projectId, IReadOnlyDictionary<string, ModProjectInfo> cache)
+        => cache.TryGetValue(projectId, out var info) ? info : null;
+
+    private static string ResolveVersionType(ModVersion version)
+    {
+        string type = version.VersionType?.Trim().ToLowerInvariant() ?? "";
+        if (type == "release" || type == "beta" || type == "alpha")
+            return type;
+
+        string number = version.VersionNumber.ToLowerInvariant();
+        if (number.Contains("alpha")) return "alpha";
+        if (number.Contains("beta") || number.Contains("rc")) return "beta";
+        return "release";
+    }
+
+    private static SolidColorBrush CreateBrush(byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+}
+
+/// <summary>版本卡片中的前置依赖条目，点击可跳转到对应模组的版本选择页。</summary>
+public class DependencyDisplayItem
+{
+    public string ProjectId { get; }
+    public string Title { get; }
+    public string ProjectType { get; }
+    public string IconUrl { get; }
+    public string Description { get; }
+
+    public DependencyDisplayItem(ModDependency dependency, ModProjectInfo? info)
+    {
+        ProjectId = dependency.ProjectId ?? string.Empty;
+        Title = string.IsNullOrWhiteSpace(info?.Title) ? ProjectId : info!.Title;
+        ProjectType = string.IsNullOrWhiteSpace(info?.ProjectType) ? "mod" : info!.ProjectType;
+        IconUrl = info?.IconUrl ?? string.Empty;
+        Description = info?.Description ?? string.Empty;
+    }
+
+    public ModSearchHit ToSearchHit() => new()
+    {
+        ProjectId = ProjectId,
+        ProjectType = ProjectType,
+        Title = Title,
+        Description = Description,
+        IconUrl = IconUrl
+    };
 }
