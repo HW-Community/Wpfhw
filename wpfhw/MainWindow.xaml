@@ -1,7 +1,7 @@
 ﻿<Window x:Class="wpfhw.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Modrinth 下载器"
+        Title="Wpfhw Downloader"
         Height="720" Width="1080"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei"
