@@ -1,6 +1,9 @@
 # 子文件夹内编译目录
 wpfhw/bin/
 wpfhw/obj/
+native/bin/
+native/obj/
+native/tray/logo.ico
 
 # VS本地配置
 *.csproj.user
