@@ -1,4 +1,5 @@
 #include "download_file.h"
+#include "app_info.h"
 #include "win_http.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -12,7 +13,6 @@
 
 namespace {
 
-constexpr const char* kUserAgent = "HW-Community/Wpfhw-cli/1.0.0";
 constexpr int kMaxThreads = 8;
 constexpr std::int64_t kMinChunkBytes = 256 * 1024;
 

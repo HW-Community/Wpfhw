@@ -1,2 +1,1 @@
-// Merged into native/app. DownloadFile lives in native/common/download_file.cpp.
-int DownloadFile(const char*, const char*) { return 1; }
+// Merged into native/common/download_file.cpp. This file is not part of wpfhw.vcxproj.

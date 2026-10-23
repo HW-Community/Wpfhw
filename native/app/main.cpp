@@ -1,5 +1,6 @@
 #include "cli.h"
 #include "tray.h"
+#include "../common/win_http.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -14,18 +15,20 @@
 
 namespace {
 
-std::string wide_to_utf8(const std::wstring& wide)
-{
-    if (wide.empty()) {
-        return {};
+struct ComInit {
+    bool ok = false;
+    ComInit()
+    {
+        const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        ok = SUCCEEDED(hr);
     }
-    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
-                                         nullptr, 0, nullptr, nullptr);
-    std::string out(size, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), out.data(), size,
-                        nullptr, nullptr);
-    return out;
-}
+    ~ComInit()
+    {
+        if (ok) {
+            CoUninitialize();
+        }
+    }
+};
 
 std::vector<std::string> args_from_command_line()
 {
@@ -48,9 +51,11 @@ void attach_console()
         AllocConsole();
     }
     FILE* fp = nullptr;
-    freopen_s(&fp, "CONOUT$", "w", stdout);
-    freopen_s(&fp, "CONOUT$", "w", stderr);
-    freopen_s(&fp, "CONIN$", "r", stdin);
+    if (freopen_s(&fp, "CONOUT$", "w", stdout) != 0 ||
+        freopen_s(&fp, "CONOUT$", "w", stderr) != 0 ||
+        freopen_s(&fp, "CONIN$", "r", stdin) != 0) {
+        return;
+    }
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 }
@@ -59,13 +64,11 @@ void attach_console()
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    ComInit com;
     const auto args = args_from_command_line();
     if (args.empty()) {
         return run_tray(instance);
     }
     attach_console();
-    const int code = run_cli(args);
-    CoUninitialize();
-    return code;
+    return run_cli(args);
 }

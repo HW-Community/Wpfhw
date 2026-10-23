@@ -20,12 +20,18 @@ constexpr UINT ID_EXIT = 1002;
 constexpr UINT IDM_OPEN = 1;
 constexpr UINT IDM_EXIT = 2;
 
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
 HWND g_hwnd = nullptr;
 HWND g_menu_hwnd = nullptr;
 HICON g_icon = nullptr;
+bool g_icon_owned = false;
 NOTIFYICONDATAW g_nid{};
 bool g_dark_theme = false;
 int g_dpi = 96;
+int g_hover = 0;
 
 int scale(int px)
 {
@@ -49,10 +55,15 @@ bool is_system_dark()
     return status == ERROR_SUCCESS && value == 0;
 }
 
-HICON load_app_icon(HINSTANCE instance)
+HICON load_app_icon(HINSTANCE instance, bool& owned)
 {
     HICON icon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_APPICON));
-    return icon ? icon : LoadIconW(nullptr, IDI_APPLICATION);
+    if (icon) {
+        owned = true;
+        return icon;
+    }
+    owned = false;
+    return LoadIconW(nullptr, IDI_APPLICATION);
 }
 
 void add_tray_icon(HWND hwnd)
@@ -94,11 +105,12 @@ HRGN rounded_rgn(int w, int h, int r)
     return CreateRoundRectRgn(0, 0, w + 1, h + 1, r * 2, r * 2);
 }
 
-int hit_test_item(int y)
+int hit_test_item(int x, int y)
 {
     const int item_h = scale(36);
     const int pad = scale(8);
-    if (y < pad) {
+    const int w = scale(176);
+    if (x < scale(6) || x > w - scale(6) || y < pad) {
         return 0;
     }
     const int index = (y - pad) / item_h;
@@ -125,10 +137,7 @@ void paint_menu(HWND hwnd)
     DeleteObject(bg);
     const int pad = scale(8);
     const int item_h = scale(36);
-    POINT cursor;
-    GetCursorPos(&cursor);
-    ScreenToClient(hwnd, &cursor);
-    const int hover = hit_test_item(cursor.y);
+    const int hover = g_hover;
     HFONT font = CreateFontW(scale(16), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
                              OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                              DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -162,9 +171,11 @@ void paint_menu(HWND hwnd)
 
 void destroy_menu()
 {
-    if (g_menu_hwnd) {
-        DestroyWindow(g_menu_hwnd);
-        g_menu_hwnd = nullptr;
+    HWND hwnd = g_menu_hwnd;
+    g_menu_hwnd = nullptr;
+    g_hover = 0;
+    if (hwnd) {
+        DestroyWindow(hwnd);
     }
 }
 
@@ -186,11 +197,27 @@ LRESULT CALLBACK menu_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
     case WM_PAINT:
         paint_menu(hwnd);
         return 0;
-    case WM_MOUSEMOVE:
-        InvalidateRect(hwnd, nullptr, FALSE);
+    case WM_MOUSEMOVE: {
+        TRACKMOUSEEVENT tme{};
+        tme.cbSize = sizeof(tme);
+        tme.dwFlags = TME_LEAVE;
+        tme.hwndTrack = hwnd;
+        TrackMouseEvent(&tme);
+        const int hover = hit_test_item(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
+        if (hover != g_hover) {
+            g_hover = hover;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+        return 0;
+    }
+    case WM_MOUSELEAVE:
+        if (g_hover != 0) {
+            g_hover = 0;
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
         return 0;
     case WM_LBUTTONUP: {
-        const int id = hit_test_item(GET_Y_LPARAM(lparam));
+        const int id = hit_test_item(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam));
         destroy_menu();
         if (id == IDM_OPEN) {
             PostMessageW(g_hwnd, WM_COMMAND, ID_OPEN_MAIN, 0);
@@ -224,16 +251,37 @@ void show_menu()
     GetCursorPos(&pt);
     const int w = scale(176);
     const int h = scale(88);
+    int x = pt.x - w + scale(8);
+    int y = pt.y - h - scale(8);
+    HMONITOR monitor = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW(monitor, &mi)) {
+        const RECT& wa = mi.rcWork;
+        if (x + w > wa.right) {
+            x = wa.right - w;
+        }
+        if (y + h > wa.bottom) {
+            y = wa.bottom - h;
+        }
+        if (x < wa.left) {
+            x = wa.left;
+        }
+        if (y < wa.top) {
+            y = wa.top;
+        }
+    }
+    g_hover = 0;
     g_menu_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"WpfhwTrayMenu", L"", WS_POPUP,
-                                  pt.x - w + scale(8), pt.y - h - scale(8), w, h, g_hwnd, nullptr,
-                                  GetModuleHandleW(nullptr), nullptr);
+                                  x, y, w, h, g_hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!g_menu_hwnd) {
         return;
     }
     BOOL dark = g_dark_theme ? TRUE : FALSE;
-    DwmSetWindowAttribute(g_menu_hwnd, 20, &dark, sizeof(dark));
+    DwmSetWindowAttribute(g_menu_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
     ShowWindow(g_menu_hwnd, SW_SHOWNA);
     SetForegroundWindow(g_menu_hwnd);
+    PostMessageW(g_menu_hwnd, WM_NULL, 0, 0);
     InvalidateRect(g_menu_hwnd, nullptr, FALSE);
 }
 
@@ -272,7 +320,7 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 int run_tray(HINSTANCE instance)
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-    g_icon = load_app_icon(instance);
+    g_icon = load_app_icon(instance, g_icon_owned);
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = wnd_proc;
@@ -299,7 +347,7 @@ int run_tray(HINSTANCE instance)
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    if (g_icon) {
+    if (g_icon && g_icon_owned) {
         DestroyIcon(g_icon);
     }
     return static_cast<int>(msg.wParam);

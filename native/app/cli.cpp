@@ -1,4 +1,5 @@
 #include "cli.h"
+#include "../common/app_info.h"
 #include "../common/download_file.h"
 #include "../common/json_mini.h"
 #include "../common/win_http.h"
@@ -16,12 +17,11 @@
 
 namespace {
 
-constexpr const char* kUserAgent = "HW-Community/Wpfhw-cli/1.0.0";
 constexpr const char* kApiBase = "https://api.modrinth.com/v2";
 
 void print_usage()
 {
-    std::cout << "Wpfhw 1.0.0\n"
+    std::cout << "Wpfhw " << kAppVersion << "\n"
               << "Usage:\n"
               << "  wpfhw.exe\n"
               << "  wpfhw.exe search <keyword>\n"
@@ -43,6 +43,14 @@ std::string format_downloads(std::int64_t count)
     return buf;
 }
 
+std::string to_lower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return s;
+}
+
 int cmd_search(const std::string& keyword)
 {
     const std::string url = std::string(kApiBase) + "/search?query=" + url_encode(keyword) +
@@ -61,8 +69,7 @@ int cmd_search(const std::string& keyword)
         std::cout << "no results\n";
         return 0;
     }
-    const size_t count = (std::min)(hits.size(), static_cast<size_t>(5));
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < hits.size(); ++i) {
         const auto& hit = hits[i].raw;
         const std::string title = json_object_string(hit, "title");
         const std::string slug = json_object_string(hit, "slug");
@@ -74,6 +81,15 @@ int cmd_search(const std::string& keyword)
         std::cout << "  downloads=" << format_downloads(downloads) << " (" << downloads << ")\n";
     }
     return 0;
+}
+
+std::string project_id_from_hit(std::string_view hit)
+{
+    std::string slug = json_object_string(hit, "slug");
+    if (!slug.empty()) {
+        return slug;
+    }
+    return json_object_string(hit, "project_id");
 }
 
 std::string pick_project_slug(const std::string& name)
@@ -88,27 +104,18 @@ std::string pick_project_slug(const std::string& name)
     if (hits.empty()) {
         return {};
     }
-    std::string lowered = name;
-    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
+    const std::string lowered = to_lower(name);
     for (const auto& hit : hits) {
-        std::string slug = json_object_string(hit.raw, "slug");
-        std::string title = json_object_string(hit.raw, "title");
-        std::string slug_l = slug;
-        std::string title_l = title;
-        std::transform(slug_l.begin(), slug_l.end(), slug_l.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        std::transform(title_l.begin(), title_l.end(), title_l.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
-        if (slug_l == lowered || title_l == lowered) {
-            return slug.empty() ? json_object_string(hit.raw, "project_id") : slug;
+        const std::string slug = json_object_string(hit.raw, "slug");
+        const std::string title = json_object_string(hit.raw, "title");
+        if (to_lower(slug) == lowered || to_lower(title) == lowered) {
+            const std::string id = project_id_from_hit(hit.raw);
+            if (!id.empty()) {
+                return id;
+            }
         }
     }
-    const std::string slug = json_object_string(hits.front().raw, "slug");
-    return slug.empty() ? json_object_string(hits.front().raw, "project_id") : slug;
+    return project_id_from_hit(hits.front().raw);
 }
 
 struct DownloadTarget {
@@ -129,7 +136,16 @@ DownloadTarget pick_latest_file(const std::string& project)
     if (versions.empty()) {
         return target;
     }
-    const auto& latest = versions.front().raw;
+    size_t latest_index = 0;
+    std::string latest_date = json_object_string(versions.front().raw, "date_published");
+    for (size_t i = 1; i < versions.size(); ++i) {
+        const std::string date = json_object_string(versions[i].raw, "date_published");
+        if (date > latest_date) {
+            latest_date = date;
+            latest_index = i;
+        }
+    }
+    const auto& latest = versions[latest_index].raw;
     target.version = json_object_string(latest, "version_number");
     const auto files = json_object_array_objects(latest, "files");
     if (files.empty()) {
@@ -147,56 +163,89 @@ DownloadTarget pick_latest_file(const std::string& project)
     return target;
 }
 
-std::wstring desktop_path()
+std::wstring known_folder(REFKNOWNFOLDERID id)
 {
     PWSTR path = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path)) && path) {
+    if (SUCCEEDED(SHGetKnownFolderPath(id, 0, nullptr, &path)) && path) {
         std::wstring result = path;
         CoTaskMemFree(path);
         return result;
     }
-    wchar_t fallback[MAX_PATH];
-    if (GetEnvironmentVariableW(L"USERPROFILE", fallback, MAX_PATH) > 0) {
-        return std::wstring(fallback) + L"\\Desktop";
-    }
-    return L".";
+    return {};
 }
 
-std::string wide_to_utf8(const std::wstring& wide)
+std::wstring desktop_path()
 {
-    if (wide.empty()) {
-        return {};
+    std::wstring path = known_folder(FOLDERID_Desktop);
+    if (!path.empty()) {
+        return path;
     }
-    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
-                                         nullptr, 0, nullptr, nullptr);
-    std::string out(size, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), out.data(), size,
-                        nullptr, nullptr);
+    path = known_folder(FOLDERID_Downloads);
+    if (!path.empty()) {
+        return path;
+    }
+    wchar_t temp[MAX_PATH];
+    const DWORD n = GetTempPathW(MAX_PATH, temp);
+    if (n > 0 && n < MAX_PATH) {
+        return std::wstring(temp, n);
+    }
+    return {};
+}
+
+std::wstring safe_file_name(const std::string& name)
+{
+    std::wstring wide = utf8_to_wide(name);
+    std::wstring out;
+    out.reserve(wide.size());
+    for (wchar_t c : wide) {
+        if (c == L'\\' || c == L'/' || c == L':' || c == L'*' || c == L'?' || c == L'"' ||
+            c == L'<' || c == L'>' || c == L'|' || c == L'\0') {
+            continue;
+        }
+        out.push_back(c);
+    }
+    while (!out.empty() && (out.front() == L'.' || out.front() == L' ')) {
+        out.erase(out.begin());
+    }
+    if (out.empty()) {
+        return L"download.bin";
+    }
+    if (out.size() > 180) {
+        out.resize(180);
+    }
     return out;
+}
+
+bool url_is_https(const std::string& url)
+{
+    return url.size() >= 8 && url.compare(0, 8, "https://") == 0;
 }
 
 int cmd_download(const std::string& name)
 {
-    std::string project = name;
-    const std::string probe_url = std::string(kApiBase) + "/project/" + url_encode(name);
-    const HttpResponse probe = http_get(probe_url, kUserAgent);
-    if (probe.status < 200 || probe.status >= 300) {
-        std::cout << "resolving project name...\n";
-        project = pick_project_slug(name);
-        if (project.empty()) {
-            std::cerr << "project not found: " << name << "\n";
-            return 1;
-        }
-        std::cout << "using project: " << project << "\n";
+    std::string project = pick_project_slug(name);
+    if (project.empty()) {
+        std::cerr << "project not found: " << name << "\n";
+        return 1;
     }
+    std::cout << "using project: " << project << "\n";
     const DownloadTarget target = pick_latest_file(project);
     if (target.url.empty() || target.filename.empty()) {
         std::cerr << "no downloadable file for " << project << "\n";
         return 1;
     }
-    const std::wstring save_path = desktop_path() + L"\\" + utf8_to_wide(target.filename);
+    if (!url_is_https(target.url)) {
+        std::cerr << "refusing non-https download url\n";
+        return 1;
+    }
+    const std::wstring dir = desktop_path();
+    if (dir.empty()) {
+        std::cerr << "cannot resolve save directory\n";
+        return 1;
+    }
+    const std::wstring save_path = dir + L"\\" + safe_file_name(target.filename);
     std::cout << "latest version: " << (target.version.empty() ? "?" : target.version) << "\n";
-    std::cout << "downloading " << target.filename << " ...\n";
+    std::cout << "downloading " << wide_to_utf8(safe_file_name(target.filename)) << " ...\n";
     if (DownloadFile(target.url.c_str(), wide_to_utf8(save_path).c_str()) != 0) {
         std::cerr << "download failed\n";
         return 1;

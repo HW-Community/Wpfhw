@@ -241,6 +241,19 @@ std::wstring utf8_to_wide(const std::string& utf8)
     return out;
 }
 
+std::string wide_to_utf8(const std::wstring& wide)
+{
+    if (wide.empty()) {
+        return {};
+    }
+    const int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    std::string out(size, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), static_cast<int>(wide.size()), out.data(), size,
+                        nullptr, nullptr);
+    return out;
+}
+
 std::string url_encode(const std::string& value)
 {
     std::string out;

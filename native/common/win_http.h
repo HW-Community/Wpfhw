@@ -22,4 +22,5 @@ bool http_download_range(const std::string& url, const std::string& user_agent,
 bool http_download_file(const std::string& url, const std::string& user_agent,
                         const std::wstring& file_path, std::string& error);
 std::wstring utf8_to_wide(const std::string& utf8);
+std::string wide_to_utf8(const std::wstring& wide);
 std::string url_encode(const std::string& value);

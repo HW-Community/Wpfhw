@@ -1,2 +1,1 @@
-// Merged into native/app. Build native/wpfhw-native.sln to get wpfhw.exe.
-int main() { return 0; }
+// Merged into native/app. This file is not part of wpfhw.vcxproj.
