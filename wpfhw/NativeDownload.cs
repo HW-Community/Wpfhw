@@ -1,11 +1,11 @@
-using System.Runtime.InteropServices;
-
 namespace wpfhw;
 
 public static class NativeDownload
 {
-    [DllImport("download_engine.dll", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int DownloadFile(
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string url,
-        [MarshalAs(UnmanagedType.LPUTF8Str)] string savePath);
+    public static int DownloadFile(string url, string savePath)
+    {
+        _ = url;
+        _ = savePath;
+        return 1;
+    }
 }

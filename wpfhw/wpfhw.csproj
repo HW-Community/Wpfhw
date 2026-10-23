@@ -18,10 +18,6 @@
 		<Content Include="logo.ico">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
-		<None Include="..\native\bin\Release\download_engine.dll" Condition="Exists('..\native\bin\Release\download_engine.dll')">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-			<Link>download_engine.dll</Link>
-		</None>
 	</ItemGroup>
 
 </Project>

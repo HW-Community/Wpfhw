@@ -5,9 +5,7 @@ setlocal
 set CONFIG=%1
 if "%CONFIG%"=="" set CONFIG=Release
 
-echo =====================================
-echo Building Wpfhw native toolchain (%CONFIG% x64)
-echo =====================================
+echo Building wpfhw.exe (%CONFIG% x64)
 
 where msbuild >nul 2>nul
 if errorlevel 1 (
@@ -22,9 +20,5 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo.
-echo Output: %~dp0bin\%CONFIG%\
-echo   wpfhw-cli.exe
-echo   download_engine.dll
-echo   wpfhw-tray.exe
+echo Output: %~dp0bin\%CONFIG%\wpfhw.exe
 endlocal

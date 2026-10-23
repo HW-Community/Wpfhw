@@ -3,7 +3,6 @@ wpfhw/bin/
 wpfhw/obj/
 native/bin/
 native/obj/
-native/tray/logo.ico
 
 # VS本地配置
 *.csproj.user
@@ -20,3 +19,4 @@ Thumbs.db
 
 # 运行时数据（设置、图片缓存）
 .wpfhw/.uploads/
+native/tray/logo.ico
