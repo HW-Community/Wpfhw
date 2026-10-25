@@ -1,0 +1,124 @@
+<Window x:Class="wpfhw.IdCardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="身份证校验工具"
+        Width="620" Height="660"
+        MinWidth="520" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource ThemeWindowBackground}"
+        Foreground="{DynamicResource ThemePrimaryText}"
+        FontFamily="Segoe UI, Microsoft YaHei UI, Microsoft YaHei"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <Style x:Key="IdCardButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ThemeAccent}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="12"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentHover}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ThemeAccentPressed}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="28 24 28 22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="身份证校验"
+                   FontSize="26"
+                   FontWeight="Bold"
+                   Foreground="{DynamicResource ThemePrimaryText}"/>
+
+        <TextBlock Grid.Row="1"
+                   Margin="0 8 0 18"
+                   Text="离线优先校验编码规则，区划码本地未命中时仅用 6 位区划码联网查询展示名称。"
+                   FontSize="13"
+                   Foreground="{DynamicResource ThemeSecondaryText}"
+                   TextWrapping="Wrap"/>
+
+        <Grid Grid.Row="2" Margin="0 0 0 18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="txtIdCard"
+                     Height="46"
+                     MaxLength="64"
+                     Padding="12 0"
+                     VerticalContentAlignment="Center"
+                     FontSize="16"
+                     Background="{DynamicResource ThemeInputBackground}"
+                     Foreground="{DynamicResource ThemePrimaryText}"
+                     BorderBrush="{DynamicResource ThemeBorder}"
+                     BorderThickness="1"
+                     CaretBrush="{DynamicResource ThemeAccent}"
+                     KeyDown="TxtIdCard_KeyDown"
+                     ToolTip="请输入 18 位身份证号码"/>
+
+            <Button x:Name="btnValidate"
+                    Grid.Column="1"
+                    Content="开始校验"
+                    Width="120"
+                    Height="46"
+                    Margin="10 0 0 0"
+                    Padding="16 0"
+                    Style="{StaticResource IdCardButton}"
+                    Click="BtnValidate_Click"/>
+        </Grid>
+
+        <Border Grid.Row="3"
+                Background="{DynamicResource ThemeCardBackground}"
+                BorderBrush="{DynamicResource ThemeBorder}"
+                BorderThickness="1"
+                CornerRadius="14"
+                Padding="18">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <TextBlock x:Name="txtResult"
+                           Text="请输入 18 位身份证号码后开始校验。"
+                           FontSize="14"
+                           LineHeight="28"
+                           TextWrapping="Wrap"
+                           Foreground="{DynamicResource ThemePrimaryText}"/>
+            </ScrollViewer>
+        </Border>
+
+        <TextBlock Grid.Row="4"
+                   Margin="2 14 2 0"
+                   Text="说明：本工具仅按 GB 11643 校验号码编码规则，无法接入公安人口库，不能核验身份证是否真实存在。归属地联网接口为免费第三方服务，可能限流、超时或随时失效，结果仅用于展示。身份证原文仅在本机内存中处理，不会写入文件或数据库。"
+                   FontSize="12"
+                   LineHeight="20"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource ThemeSecondaryText}"/>
+    </Grid>
+</Window>

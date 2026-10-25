@@ -18,6 +18,10 @@
 		<Content Include="logo.ico">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+		<Content Include="Data\area_codes.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<EmbeddedResource Include="Data\area_codes.json" />
 	</ItemGroup>
 
 </Project>

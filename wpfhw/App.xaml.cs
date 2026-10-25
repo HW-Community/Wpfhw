@@ -9,6 +9,16 @@ namespace wpfhw
             AppStorage.Initialize();
             base.OnStartup(e);
 
+            // 区划码表只在启动时加载一次；失败时保留空表，联网查询仍可兜底展示。
+            try
+            {
+                IdCardHelper.Initialize();
+            }
+            catch (Exception ex)
+            {
+                AppStorage.Log($"Load area codes failed: {ex.Message}");
+            }
+
             AppThemeMode mode = AppThemeMode.System;
             try
             {

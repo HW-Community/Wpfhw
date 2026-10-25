@@ -538,6 +538,12 @@ public partial class MainWindow : Window
 
     #endregion
 
+    private void BtnIdCard_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new IdCardWindow { Owner = this };
+        window.ShowDialog();
+    }
+
     #region ========== 设置面板 ==========
 
     private void BtnSettings_Click(object sender, RoutedEventArgs e)
