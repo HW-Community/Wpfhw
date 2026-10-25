@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="wpfhw/wpfhw.csproj" />
+  <Project Path="native/app/wpfhw.vcxproj" />
 </Solution>

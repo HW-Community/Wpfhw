@@ -21,8 +21,12 @@ jobs:
       - name: Show Installed .NET SDKs
         run: dotnet --list-sdks
 
+      - name: Find MSBuild
+        id: msbuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Restore Dependencies
-        run: dotnet restore wpfhw.slnx
+        run: msbuild wpfhw.slnx /t:Restore /p:Configuration=Release
 
       - name: Build
-        run: dotnet build wpfhw.slnx --no-restore --configuration Release
+        run: msbuild wpfhw.slnx /p:Configuration=Release /p:Platform=x64 /m /v:minimal
