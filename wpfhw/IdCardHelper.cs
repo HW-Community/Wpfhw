@@ -91,7 +91,7 @@ public static class IdCardHelper
             IsValid = checksumValid && dateValid,
             FailureReason = !checksumValid
                 ? "第 18 位校验码不符合 GB 11643 规则"
-                : !dateValid ? "第 7~14 位出生日期不合法" : null,
+                : !dateValid ? "第 7~14 位出生日期不合法（年份须在 1900 年至当前年份之间）" : null,
             RegionCode = regionCode,
             RegionName = localName,
             RegionStatus = localName != null ? IdCardRegionStatus.LocalMatch : IdCardRegionStatus.NotQueried,
@@ -178,7 +178,7 @@ public static class IdCardHelper
         if (!parsed) return false;
 
         birthDate = birthDate.Date;
-        return birthDate <= DateTime.Today;
+        return birthDate.Year >= 1900 && birthDate <= DateTime.Today;
     }
 
     private static int CalculateAge(DateTime birthDate, DateTime today)
