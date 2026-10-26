@@ -118,34 +118,31 @@ API 要求所有请求携带唯一标识的 `User-Agent` 头，格式建议为 `
 
 ### 环境准备
 
-- Visual Studio 2022（含 .NET 桌面开发工作负载）或 JetBrain Rider
-- .NET SDK（版本以仓库 `.csproj` 中 `TargetFramework` 为准）
+- Windows 10/11
+- Visual Studio 2022（工作负载：使用 C++ 的桌面开发）
 
 ### 构建步骤
 
-```bash
-# 克隆仓库
-git clone https://github.com/HW-Community/Wpfhw.git
-cd Wpfhw
+在仓库根目录双击或运行 `build.bat`（`wpfhw\build.bat` 与 `native\build.bat` 都会转到根目录脚本）：
 
-# 还原依赖
-dotnet restore
-
-# 构建项目
-dotnet build
-
-# 运行（调试模式）
-dotnet run
+```bat
+build.bat
 ```
 
-### 打包发布
+指定配置：
 
-```bash
-# 发布 Release 版本
-dotnet publish -c Release -r win-x64 --self-contained false
+```bat
+build.bat Release
+build.bat Debug
 ```
 
-生成的文件位于 `bin/Release/` 目录下。
+产物只有一个文件：`native\bin\Release\Wpfhw.exe`。
+
+```bat
+native\bin\Release\Wpfhw.exe
+native\bin\Release\Wpfhw.exe search sodium
+native\bin\Release\Wpfhw.exe download fabric-api
+```
 
 ## 参与贡献
 

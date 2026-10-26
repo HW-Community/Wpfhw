@@ -35,7 +35,7 @@
   <PropertyGroup>
     <OutDir>$(ProjectDir)..\bin\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)..\obj\wpfhw\$(Configuration)\</IntDir>
-    <TargetName>wpfhw</TargetName>
+    <TargetName>Wpfhw</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>

@@ -23,9 +23,9 @@ void print_usage()
 {
     std::cout << "Wpfhw " << kAppVersion << "\n"
               << "Usage:\n"
-              << "  wpfhw.exe\n"
-              << "  wpfhw.exe search <keyword>\n"
-              << "  wpfhw.exe download <project>\n";
+              << "  Wpfhw.exe\n"
+              << "  Wpfhw.exe search <keyword>\n"
+              << "  Wpfhw.exe download <project>\n";
 }
 
 std::string format_downloads(std::int64_t count)
