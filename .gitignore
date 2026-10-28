@@ -1,9 +1,15 @@
 # 子文件夹内编译目录
 wpfhw/bin/
 wpfhw/obj/
+native/bin/
+native/obj/
+
+# 发布产物
+dist/
 
 # VS本地配置
 *.csproj.user
+*.vcxproj.user
 *.suo
 .vs/
 
@@ -17,3 +23,5 @@ Thumbs.db
 
 # 运行时数据（设置、图片缓存）
 .wpfhw/.uploads/
+
+native/tray/logo.ico

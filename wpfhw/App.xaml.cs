@@ -9,6 +9,13 @@ namespace wpfhw
             AppStorage.Initialize();
             base.OnStartup(e);
 
+            if (e.Args.Length > 0)
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                Shutdown(NativeBootstrap.RunCli(e.Args));
+                return;
+            }
+
             AppThemeMode mode = AppThemeMode.System;
             try
             {
@@ -33,6 +40,8 @@ namespace wpfhw
                     AppStorage.Log($"Fallback theme failed: {fallbackEx.Message}");
                 }
             }
+
+            NativeBootstrap.EnsureTrayStarted();
 
             var splash = new SplashScreen();
             splash.Show();
