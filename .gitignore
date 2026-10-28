@@ -4,8 +4,12 @@ wpfhw/obj/
 native/bin/
 native/obj/
 
+# 发布产物
+dist/
+
 # VS本地配置
 *.csproj.user
+*.vcxproj.user
 *.suo
 .vs/
 

@@ -32,6 +32,7 @@ NOTIFYICONDATAW g_nid{};
 bool g_dark_theme = false;
 int g_dpi = 96;
 int g_hover = 0;
+std::wstring g_main_exe_path;
 
 int scale(int px)
 {
@@ -91,6 +92,13 @@ void open_main_window()
         ShowWindow(existing, SW_RESTORE);
         SetForegroundWindow(existing);
         return;
+    }
+    if (!g_main_exe_path.empty()) {
+        const HINSTANCE result = ShellExecuteW(nullptr, L"open", g_main_exe_path.c_str(),
+                                               nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(result) > 32) {
+            return;
+        }
     }
     MessageBoxW(nullptr, L"主界面尚未打开。双击本程序无参数运行即可驻留托盘。", L"Wpfhw",
                 MB_OK | MB_ICONINFORMATION);
@@ -317,8 +325,14 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 } // namespace
 
-int run_tray(HINSTANCE instance)
+int run_tray(HINSTANCE instance, const std::wstring& main_exe_path)
 {
+    HANDLE instance_mutex = CreateMutexW(nullptr, TRUE, L"Local\\WpfhwTraySingleton");
+    if (instance_mutex && GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(instance_mutex);
+        return 0;
+    }
+    g_main_exe_path = main_exe_path;
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_icon = load_app_icon(instance, g_icon_owned);
     WNDCLASSEXW wc{};
@@ -339,6 +353,9 @@ int run_tray(HINSTANCE instance)
     g_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"WpfhwTrayHidden", L"Wpfhw", WS_POPUP, 0, 0, 0, 0,
                              nullptr, nullptr, instance, nullptr);
     if (!g_hwnd) {
+        if (instance_mutex) {
+            CloseHandle(instance_mutex);
+        }
         return 1;
     }
     ShowWindow(g_hwnd, SW_HIDE);
@@ -349,6 +366,9 @@ int run_tray(HINSTANCE instance)
     }
     if (g_icon && g_icon_owned) {
         DestroyIcon(g_icon);
+    }
+    if (instance_mutex) {
+        CloseHandle(instance_mutex);
     }
     return static_cast<int>(msg.wParam);
 }

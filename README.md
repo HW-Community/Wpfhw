@@ -56,8 +56,9 @@ Wpfhw 是一款基于 WPF 构建的 Windows 桌面应用，通过 [Modrinth API]
 
 ### 系统要求
 
-- Windows 10 1809 及以上版本（需 .NET10）
+- Windows 10 1809 及以上版本
 - 屏幕分辨率不低于 1280×720
+- 框架依赖版需要 [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0/runtime)；自包含单文件版无需安装 .NET
 
 ### 获取最新版本
 
@@ -98,7 +99,7 @@ Wpfhw 是一款基于 WPF 构建的 Windows 桌面应用，通过 [Modrinth API]
 |------|------|
 | UI 框架 | WPF（Windows Presentation Foundation） |
 | 开发语言 | C# |
-| 运行时 | .NET（需安装 .NET Desktop Runtime） |
+| 运行时 | .NET 10（框架依赖版需安装 Desktop Runtime；自包含版已内置） |
 | API 对接 | Modrinth API v2（`https://api.modrinth.com/v2`） |
 | HTTP 请求 | `HttpClient` / RESTful 调用 |
 | 数据格式 | JSON |
@@ -119,29 +120,40 @@ API 要求所有请求携带唯一标识的 `User-Agent` 头，格式建议为 `
 ### 环境准备
 
 - Windows 10/11
-- Visual Studio 2022（工作负载：使用 C++ 的桌面开发）
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)（x64）
+- Visual Studio 2022 或 2026（工作负载：使用 C++ 的桌面开发，含 Windows SDK）
 
 ### 构建步骤
 
-在仓库根目录双击或运行 `build.bat`（`wpfhw\build.bat` 与 `native\build.bat` 都会转到根目录脚本）：
+在仓库根目录运行 `build.bat`（`wpfhw\build.bat` 与 `native\build.bat` 都会转到根目录脚本）：
 
 ```bat
 build.bat
 ```
 
-指定配置：
+默认构建 Release 并一次产出三种发布形态。也可以指定配置和形态：
 
 ```bat
-build.bat Release
-build.bat Debug
+build.bat Release all
+build.bat Release self
+build.bat Release fx-single
+build.bat Release fx-full
+build.bat Debug all
 ```
 
-产物只有一个文件：`native\bin\Release\Wpfhw.exe`。
+| 形态 | 产物 | 目标机要求 |
+|------|------|-----------|
+| `self` | `dist\Release\self-contained-single\Wpfhw.exe` | 无需安装 .NET |
+| `fx-single` | `dist\Release\framework-single\Wpfhw.exe` | .NET 10 Desktop Runtime x64 |
+| `fx-full` | `dist\Release\framework-full\` | .NET 10 Desktop Runtime x64 |
+
+WPF 主程序会把 native 的托盘/CLI 组件作为资源嵌入，单文件产物仍然只有一个 exe；首次运行时释放到 `%LOCALAPPDATA%\Wpfhw\native\`。native 独立工具仍会编译到 `native\bin\Release\Wpfhw.exe`。
+
+命令行用法（三种发布形态均可用）：
 
 ```bat
-native\bin\Release\Wpfhw.exe
-native\bin\Release\Wpfhw.exe search sodium
-native\bin\Release\Wpfhw.exe download fabric-api
+dist\Release\framework-single\Wpfhw.exe search sodium
+dist\Release\framework-single\Wpfhw.exe download fabric-api
 ```
 
 ## 参与贡献

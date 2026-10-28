@@ -7,10 +7,16 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 		<ApplicationIcon>logo.ico</ApplicationIcon>
+		<AssemblyName>Wpfhw</AssemblyName>
+		<RootNamespace>wpfhw</RootNamespace>
 		<PublishSingleFile>true</PublishSingleFile>
 		<SelfContained>true</SelfContained>
 		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
 		<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<NativePayloadPath>$(MSBuildProjectDirectory)\..\native\bin\$(Configuration)\Wpfhw.exe</NativePayloadPath>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -19,5 +25,17 @@
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
+
+	<!-- 把 native 托盘/CLI 作为程序集资源嵌入，单文件发布后仍只有一个 exe。 -->
+	<ItemGroup Condition="Exists('$(NativePayloadPath)')">
+		<EmbeddedResource Include="$(NativePayloadPath)">
+			<Link>Native\Wpfhw.exe</Link>
+			<LogicalName>wpfhw.Native.Wpfhw.exe</LogicalName>
+		</EmbeddedResource>
+	</ItemGroup>
+
+	<Target Name="EnsureNativePayload" BeforeTargets="Publish" Condition="!Exists('$(NativePayloadPath)')">
+		<Error Text="缺少 $(NativePayloadPath)。请先在仓库根目录运行 build.bat 构建 native 项目，再发布 WPF 项目。" />
+	</Target>
 
 </Project>

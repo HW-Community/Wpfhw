@@ -67,7 +67,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     ComInit com;
     const auto args = args_from_command_line();
     if (args.empty()) {
-        return run_tray(instance);
+        return run_tray(instance, std::wstring{});
+    }
+    if (args[0] == "--tray") {
+        const std::wstring main_exe = args.size() > 1 ? utf8_to_wide(args[1]) : std::wstring{};
+        return run_tray(instance, main_exe);
     }
     attach_console();
     return run_cli(args);
