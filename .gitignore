@@ -16,6 +16,7 @@ dist/
 # 压缩包
 *.rar
 *.7z
+*.zip
 
 # 系统文件
 Thumbs.db
